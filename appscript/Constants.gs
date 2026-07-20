@@ -44,3 +44,14 @@ const FILL_TYPE = Object.freeze({
   FULL: "full",
   PARTIAL: "partial"
 });
+
+const EVENT_DISPLAY_COLOR = Object.freeze({
+  DEPARTED: "#22c55e",
+  MOORED: "#22c55e",
+  ANCHORED: "#22c55e",
+  NOTE: "#3b82f6",
+  DISTURBANCE: "#ef4444",
+  FUEL: "#f8fafc",
+  AUTOMATIC_PLACE: "#f59e0b"
+});
+
