@@ -1,16 +1,9 @@
 /**
  * Veneloki - FuelService.gs
  *
- * Tankkausten käsittely:
- * - täyteen / osatankkaus
- * - litrat
- * - kokonaishinta
- * - automaattinen litrahinta
- * - konetunnit
- * - GPS ja paikka
- * - tallennus Tankkaukset-välilehdelle
- * - tallennus Vene-välilehdelle
- * - aktiivisen matkan aikana lokimerkintä
+ * Tankkausten käsittely.
+ * Jos konetunteja ei syötetä, käytetään laskennallista arviota,
+ * jos todellinen lähtölukema on olemassa.
  */
 
 function addFuelEntry(payload) {
@@ -33,6 +26,7 @@ function addFuelEntry(payload) {
   const fillType = normalizeFillType_(payload.fillType);
   const placeName = cleanFuelText_(payload.placeName);
   const notes = cleanFuelText_(payload.notes);
+  const engineHours = resolveFuelEngineHours_(payload.engineHours, now);
 
   let eventId = "";
 
@@ -49,7 +43,7 @@ function addFuelEntry(payload) {
         litres,
         priceTotal,
         pricePerLitre,
-        engineHours: payload.engineHours,
+        engineHours,
         fillType,
         notes
       }),
@@ -75,7 +69,7 @@ function addFuelEntry(payload) {
     litres,
     priceTotal,
     pricePerLitre,
-    engineHours: payload.engineHours,
+    engineHours,
     fillType,
     notes
   });
@@ -86,7 +80,7 @@ function addFuelEntry(payload) {
     litres,
     priceTotal,
     pricePerLitre,
-    engineHours: payload.engineHours,
+    engineHours,
     fillType,
     placeName,
     notes
@@ -101,8 +95,22 @@ function addFuelEntry(payload) {
     litres,
     priceTotal,
     pricePerLitre,
+    engineHours,
     fillType
   };
+}
+
+function resolveFuelEngineHours_(providedHours, fuelTime) {
+  if (
+    providedHours !== null &&
+    providedHours !== undefined &&
+    providedHours !== ""
+  ) {
+    return Number(providedHours);
+  }
+
+  const suggested = getSuggestedEngineHours(fuelTime);
+  return suggested === null ? "" : suggested;
 }
 
 function saveFuelRow_(data) {
@@ -140,8 +148,6 @@ function saveBoatFuelEvent_(data) {
     "Litrat: " + formatFuelNumber_(data.litres, 2) + " l",
     "Hinta: " + formatFuelNumber_(data.priceTotal, 2) + " €",
     "Litrahinta: " + formatFuelNumber_(data.pricePerLitre, 3) + " €/l",
-    data.engineHours !== null &&
-    data.engineHours !== undefined &&
     data.engineHours !== ""
       ? "Konetunnit: " + formatFuelNumber_(Number(data.engineHours), 1) + " h"
       : "",
@@ -226,11 +232,7 @@ function buildFuelEventText_(data) {
     formatFuelNumber_(data.pricePerLitre, 3) + " €/l"
   ];
 
-  if (
-    data.engineHours !== null &&
-    data.engineHours !== undefined &&
-    data.engineHours !== ""
-  ) {
+  if (data.engineHours !== "") {
     lines.push(
       "Konetunnit: " +
       formatFuelNumber_(Number(data.engineHours), 1) +
