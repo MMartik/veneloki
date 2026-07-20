@@ -1,0 +1,15 @@
+# Secrets / local configuration
+Config.gs
+.clasp.json
+.env
+.env.*
+*.secret
+secrets/
+
+# Dependencies and local files
+node_modules/
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/
