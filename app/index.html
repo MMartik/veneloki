@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="fi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Veneloki</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="stylesheet" href="./css/app.css">
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <header class="app-header">
+      <div>
+        <div class="app-title">Veneloki</div>
+        <div id="connectionState" class="subtle">Paikallinen tila</div>
+      </div>
+      <div id="gpsBadge" class="status-badge">GPS ei käytössä</div>
+    </header>
+
+    <nav id="tabs" class="tabs" aria-label="Päänäkymät">
+      <button class="tab-button active" data-view="log">Loki</button>
+      <button class="tab-button" data-view="map">Kartta</button>
+      <button class="tab-button" data-view="boat">Vene</button>
+      <button class="tab-button" data-view="settings">Asetukset</button>
+    </nav>
+
+    <main>
+      <section id="view-log" class="view active">
+        <div class="trip-summary">
+          <div>
+            <div id="vesselState" class="state-title">EI AKTIIVISTA MATKAA</div>
+            <div id="tripMeta" class="subtle">Aloita uusi matka.</div>
+          </div>
+          <button id="startTripButton" class="primary-button">Aloita matka</button>
+        </div>
+
+        <section id="activeTripControls" class="hidden">
+          <div class="action-grid">
+            <button id="departureButton" class="action-button">Irti</button>
+            <button id="arrivalButton" class="action-button">Kiinni</button>
+            <button id="anchorButton" class="action-button">Ankkurissa</button>
+            <button id="noteButton" class="action-button">Oma kirjaus</button>
+            <button id="disturbanceButton" class="action-button danger">Häiriö</button>
+            <button id="endTripButton" class="action-button secondary">Päätä matka</button>
+          </div>
+        </section>
+
+        <section class="log-section">
+          <div class="section-title">Aktiivisen matkan loki</div>
+          <div id="logList" class="log-list">
+            <div class="empty-state">Ei kirjauksia.</div>
+          </div>
+        </section>
+      </section>
+
+      <section id="view-map" class="view">
+        <div class="placeholder-panel">
+          <h2>Kartta</h2>
+          <p>Tähän tulee käynnissä olevan matkan reitti, nykyinen sijainti ja lokimerkinnät.</p>
+        </div>
+      </section>
+
+      <section id="view-boat" class="view">
+        <div class="boat-summary">
+          <div>
+            <div class="section-title">Konetunnit</div>
+            <div id="engineHoursValue" class="metric-value">–</div>
+          </div>
+          <button id="updateEngineHoursButton" class="secondary-button">Päivitä lukema</button>
+        </div>
+
+        <button id="newFuelButton" class="primary-button full-width">Uusi tankkaus</button>
+
+        <section class="log-section">
+          <div class="section-title">Viimeisimmät veneen tapahtumat</div>
+          <div id="boatEventList" class="log-list">
+            <div class="empty-state">Ei tapahtumia.</div>
+          </div>
+        </section>
+      </section>
+
+      <section id="view-settings" class="view">
+        <form id="settingsForm" class="form-panel">
+          <label>
+            Apps Script API -osoite
+            <input id="apiUrlInput" type="url" placeholder="https://script.google.com/macros/s/.../exec">
+          </label>
+          <label>
+            API-avain
+            <input id="apiKeyInput" type="password" autocomplete="off">
+          </label>
+          <button type="submit" class="primary-button">Tallenna asetukset</button>
+        </form>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="formDialog">
+    <form method="dialog" id="dialogForm" class="dialog-form">
+      <h2 id="dialogTitle"></h2>
+      <div id="dialogFields"></div>
+      <div class="dialog-actions">
+        <button value="cancel" class="secondary-button">Peruuta</button>
+        <button id="dialogSubmit" value="default" class="primary-button">Tallenna</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="./js/storage.js"></script>
+  <script src="./js/app.js"></script>
+</body>
+</html>
