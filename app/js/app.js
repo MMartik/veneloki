@@ -1,5 +1,10 @@
 (() => {
-  const APP_VERSION = "0.2.7";
+  const APP_VERSION = "0.2.8";
+  // Rajausversio iPadOS:n Loisto Mariner + Veneloki Split View -ilmoitukselle.
+  // Tässä versiossa selainpaikannusta ei käynnistetä lainkaan. Näin voidaan
+  // varmistaa, johtuuko järjestelmän Wi-Fi-/mobiilidatakehote kahden sovelluksen
+  // samanaikaisesta jatkuvasta paikannuksesta.
+  const GPS_DIAGNOSTIC_MODE = true;
   const OFFLINE_READY_VERSION_KEY = "veneloki.offlineReadyVersion";
   let state = VenelokiStorage.getState();
   let activeView = "log";
@@ -1509,6 +1514,14 @@
   function updateGpsIndicator() {
     ensureIndicators();
     if (!elements.gpsBadge) return;
+
+    if (GPS_DIAGNOSTIC_MODE) {
+      elements.gpsBadge.className = "connection-badge gps-disabled";
+      elements.gpsBadge.innerHTML = '<span class="status-dot" aria-hidden="true"></span><span>GPS pois · testitila</span>';
+      elements.gpsBadge.title = "Venelokin selainpaikannus on pysäytetty Loisto Mariner -yhteensopivuustestiä varten.";
+      return;
+    }
+
     const quality = gpsQuality(gpsState.position);
     const accuracy = gpsState.position ? Math.round(Number(gpsState.position.accuracy)) : null;
     const labels = {
@@ -1561,6 +1574,7 @@
   function startGpsWatch() {
     ensureIndicators();
     updateGpsIndicator();
+    if (GPS_DIAGNOSTIC_MODE) return;
     if (!navigator.geolocation) return;
     gpsWatchId = navigator.geolocation.watchPosition(handleGpsSuccess, handleGpsError, {
       enableHighAccuracy: true,

@@ -442,6 +442,7 @@ dialog::backdrop { background: rgba(0,0,0,.72); }
 .gps-weak .status-dot { background: var(--orange); }
 .gps-none .status-dot,
 .sync-error .status-dot { background: var(--red); }
+.gps-disabled .status-dot { background: var(--muted); }
 .sync-local .status-dot { background: var(--muted); }
 
 .hidden { display: none !important; }
