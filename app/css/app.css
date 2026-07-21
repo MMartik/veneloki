@@ -422,7 +422,8 @@ dialog::backdrop { background: rgba(0,0,0,.72); }
 .gps-good .status-dot,
 .sync-synced .status-dot { background: var(--green); }
 .gps-moderate .status-dot,
-.sync-syncing .status-dot { background: #eab308; }
+.sync-syncing .status-dot,
+.sync-pending .status-dot { background: #eab308; }
 .gps-weak .status-dot { background: var(--orange); }
 .gps-none .status-dot,
 .sync-error .status-dot { background: var(--red); }

@@ -1,8 +1,11 @@
 (() => {
-  const state = VenelokiStorage.getDemoState();
+  let state = VenelokiStorage.getState();
   let activeView = "log";
   let dialogBusy = false;
   let gpsWatchId = null;
+  let syncRunning = false;
+  let syncTimer = null;
+  let lastSyncError = null;
 
   const gpsState = {
     position: null,
@@ -29,7 +32,8 @@
     dialogSubmit: document.getElementById("dialogSubmit"),
     dialogCancel: document.getElementById("dialogCancel"),
     gpsBadge: document.getElementById("gpsBadge"),
-    syncBadge: document.getElementById("syncBadge")
+    syncBadge: document.getElementById("syncBadge"),
+    connectionState: document.getElementById("connectionState")
   };
 
   function newId() {
@@ -38,13 +42,241 @@
 
   function save() {
     try {
-      VenelokiStorage.saveDemoState(state);
-      setSyncStatus("local");
+      VenelokiStorage.saveState(state);
+      setSyncStatus(VenelokiApi.isConfigured() ? "pending" : "local");
       render();
+      scheduleSync();
     } catch (error) {
       setSyncStatus("error");
       console.error(error);
       throw new Error("Tallennus epäonnistui. Laitteen paikallinen tallennustila voi olla täynnä.");
+    }
+  }
+
+  function queueOperation(type, payload) {
+    const operation = VenelokiStorage.createOperation(type, payload);
+    VenelokiStorage.enqueue(operation);
+    return operation;
+  }
+
+  function gpsPayload(gps) {
+    if (!gps) return {};
+    return {
+      latitude: gps.latitude,
+      longitude: gps.longitude,
+      accuracyM: gps.accuracy,
+      speedMs: gps.speed,
+      headingDeg: gps.heading,
+      altitudeM: gps.altitude
+    };
+  }
+
+  function scheduleSync(delay = 300) {
+    if (!VenelokiApi.isConfigured()) return;
+    if (syncTimer !== null) window.clearTimeout(syncTimer);
+    syncTimer = window.setTimeout(() => {
+      syncTimer = null;
+      syncNow();
+    }, delay);
+  }
+
+  function mergeRemoteState(remoteState) {
+    if (!remoteState || typeof remoteState !== "object") {
+      throw new Error("Palvelin palautti virheellisen tilan.");
+    }
+
+    const remoteHasData = Boolean(
+      remoteState.activeTrip ||
+      remoteState.log?.length ||
+      remoteState.boatEvents?.length ||
+      remoteState.engineHours !== null && remoteState.engineHours !== undefined
+    );
+    const localHasData = Boolean(
+      state.activeTrip || state.log.length || state.boatEvents.length || state.engineHours !== null
+    );
+
+    if (!remoteHasData && localHasData) {
+      VenelokiStorage.backupState(state);
+      return false;
+    }
+
+    const localLog = new Map(state.log.map(item => [String(item.id), item]));
+    const localBoatEvents = new Map(state.boatEvents.map(item => [String(item.id), item]));
+    const mergePhotos = (item, local) => {
+      const localItem = local.get(String(item.id));
+      const localPhotos = normalisePhotos(localItem?.photos);
+      return {
+        ...item,
+        photos: localPhotos,
+        hasPhoto: Boolean(item.hasPhoto || localPhotos.length)
+      };
+    };
+
+    state = {
+      activeTrip: remoteState.activeTrip || null,
+      log: Array.isArray(remoteState.log)
+        ? remoteState.log.map(item => mergePhotos(item, localLog))
+        : [],
+      boatEvents: Array.isArray(remoteState.boatEvents)
+        ? remoteState.boatEvents.map(item => mergePhotos(item, localBoatEvents))
+        : [],
+      engineHours: remoteState.engineHours === null || remoteState.engineHours === undefined
+        ? null
+        : Number(remoteState.engineHours)
+    };
+    VenelokiStorage.saveState(state);
+    render();
+    return true;
+  }
+
+  function remoteStateHasData(remoteState) {
+    return Boolean(
+      remoteState?.activeTrip ||
+      remoteState?.log?.length ||
+      remoteState?.boatEvents?.length ||
+      remoteState?.engineHours !== null && remoteState?.engineHours !== undefined
+    );
+  }
+
+  function parseLegacyFuel(item) {
+    const lines = String(item.details || "").split(/\r?\n/);
+    const numberAt = index => fuelNumber(lines[index]?.match(/[\d.,]+/)?.[0] || "");
+    const litres = numberAt(0);
+    const total = numberAt(1);
+    const unit = numberAt(2);
+
+    if (!(litres > 0) || total === null && unit === null) return null;
+    return {
+      litres,
+      priceTotal: total !== null ? total : litres * unit,
+      pricePerLitre: unit !== null ? unit : total / litres,
+      fillType: /osatankkaus/i.test(item.details || "") ? "partial" : "full"
+    };
+  }
+
+  function queueLegacyActiveTrip() {
+    if (!state.activeTrip || VenelokiStorage.getQueue().length) return false;
+    VenelokiStorage.backupState(state);
+
+    const trip = state.activeTrip;
+    const entries = [...state.log].sort((left, right) => (
+      new Date(left.timestamp || 0).getTime() - new Date(right.timestamp || 0).getTime()
+    ));
+    const startEntry = entries.find(item => item.type === "trip_start");
+    const startTime = startEntry?.timestamp || trip.startedAt || new Date().toISOString();
+
+    queueOperation("trip.start", {
+      tripId: trip.id,
+      eventId: startEntry?.id || newId(),
+      eventTime: startTime,
+      crew: trip.crew || "Ei tietoa",
+      startNotes: trip.notes || "",
+      ...gpsPayload(startEntry?.gps)
+    });
+
+    entries.forEach(item => {
+      if (item.type === "trip_start" || item.type === "trip_end") return;
+
+      const common = {
+        eventId: item.id,
+        eventTime: item.timestamp,
+        ...gpsPayload(item.gps)
+      };
+
+      if (["departed", "moored", "anchored"].includes(item.type)) {
+        queueOperation(`event.${item.type}`, {
+          ...common,
+          legId: item.type === "departed" ? `leg_${item.id}` : undefined,
+          placeName: entryPlace(item),
+          text: item.details || ""
+        });
+        return;
+      }
+
+      if (["note", "disturbance"].includes(item.type)) {
+        queueOperation(`event.${item.type}`, {
+          ...common,
+          text: item.details || "",
+          photoCount: normalisePhotos(item.photos).length
+        });
+        return;
+      }
+
+      if (item.type === "fuel") {
+        const fuel = parseLegacyFuel(item);
+        if (!fuel) return;
+        const boatEvent = state.boatEvents.find(candidate => (
+          candidate.type === "fuel" && candidate.timestamp === item.timestamp
+        ));
+        queueOperation("fuel.add", {
+          ...common,
+          ...fuel,
+          fuelId: newId(),
+          boatEventId: boatEvent?.id || newId(),
+          tripId: trip.id,
+          fuelTime: item.timestamp,
+          placeName: entryPlace(item),
+          engineHours: "",
+          notes: ""
+        });
+      }
+    });
+
+    return true;
+  }
+
+  async function syncNow({ pull = true } = {}) {
+    if (syncRunning || !VenelokiApi.isConfigured()) return false;
+    if (!navigator.onLine) {
+      lastSyncError = new Error("Ei verkkoyhteyttä.");
+      setSyncStatus("error", lastSyncError.message);
+      return false;
+    }
+
+    syncRunning = true;
+    lastSyncError = null;
+    setSyncStatus("syncing");
+
+    try {
+      let queue = VenelokiStorage.getQueue();
+
+      if (!queue.length && state.activeTrip && pull) {
+        const remoteBeforeSync = await VenelokiApi.getState();
+        if (remoteStateHasData(remoteBeforeSync)) {
+          mergeRemoteState(remoteBeforeSync);
+          setSyncStatus("synced");
+          return true;
+        }
+        queueLegacyActiveTrip();
+        queue = VenelokiStorage.getQueue();
+      }
+
+      while (queue.length) {
+        const operation = queue[0];
+        await VenelokiApi.syncOperation(operation);
+        VenelokiStorage.removeQueued(operation.id);
+        queue = VenelokiStorage.getQueue();
+        setSyncStatus(queue.length ? "syncing" : "synced");
+      }
+
+      if (pull) {
+        const remoteState = await VenelokiApi.getState();
+        const merged = mergeRemoteState(remoteState);
+        if (!merged) {
+          setSyncStatus("local", "Google Sheets oli tyhjä. Aiemmat paikalliset tiedot säilytettiin laitteella.");
+          return true;
+        }
+      }
+
+      setSyncStatus("synced");
+      return true;
+    } catch (error) {
+      lastSyncError = error;
+      console.error(error);
+      setSyncStatus("error", error?.message || "Synkronointi epäonnistui.");
+      return false;
+    } finally {
+      syncRunning = false;
     }
   }
 
@@ -82,7 +314,9 @@
     }[type] || "Kirjaus";
   }
 
-  function formatStatusTime(date = new Date()) {
+  function formatStatusTime(value = new Date()) {
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value || "");
     const pad = value => String(value).padStart(2, "0");
     return `${pad(date.getDate())}.${pad(date.getMonth() + 1)} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
   }
@@ -205,7 +439,7 @@
 
     if (trip) {
       elements.vesselState.textContent = isUnderway() ? "MATKALLA" : "KIINNITTYNEENÄ";
-      elements.tripMeta.textContent = trip.lastStatusAt || trip.startedAt;
+      elements.tripMeta.textContent = formatStatusTime(trip.lastStatusAt || trip.startedAt);
     } else {
       elements.vesselState.textContent = "EI AKTIIVISTA MATKAA";
       elements.tripMeta.textContent = "Aloita uusi matka.";
@@ -228,8 +462,8 @@
       : await captureGpsForEvent();
     const photos = normalisePhotos(metadata.photos);
 
-    state.log.push({
-      id: newId(),
+    const item = {
+      id: metadata.id || newId(),
       type,
       title,
       details,
@@ -240,7 +474,9 @@
       source: metadata.source || "Manuaalinen kirjaus",
       photos,
       hasPhoto: photos.length > 0
-    });
+    };
+    state.log.push(item);
+    return item;
   }
 
   function ensureDialogControls() {
@@ -349,20 +585,29 @@
       <label>Lisätiedot<textarea name="notes"></textarea></label>
     `, async values => {
       const now = new Date();
+      const tripId = newId();
       state.activeTrip = {
-        id: newId(),
+        id: tripId,
         crew: values.crew,
         notes: values.notes,
-        startedAt: now.toLocaleString("fi-FI"),
+        startedAt: now.toISOString(),
         vesselStatus: "moored",
-        lastStatusAt: formatStatusTime(now)
+        lastStatusAt: now.toISOString()
       };
       state.log = [];
-      await addLog(
+      const logItem = await addLog(
         "trip_start",
         "Matka aloitettu",
         `Miehistö: ${values.crew}${values.notes ? `\n${values.notes}` : ""}`
       );
+      queueOperation("trip.start", {
+        tripId,
+        eventId: logItem.id,
+        eventTime: logItem.timestamp,
+        crew: values.crew,
+        startNotes: values.notes,
+        ...gpsPayload(logItem.gps)
+      });
       save();
     });
   }
@@ -377,9 +622,17 @@
       if (!commandAllowed(type)) return;
       const place = values.place.trim();
       const title = place ? `${label} – ${place}` : label;
-      await addLog(type, title, values.text, { place });
+      const logItem = await addLog(type, title, values.text, { place });
       state.activeTrip.vesselStatus = vesselStatus;
-      state.activeTrip.lastStatusAt = formatStatusTime();
+      state.activeTrip.lastStatusAt = logItem.timestamp;
+      queueOperation(`event.${type}`, {
+        eventId: logItem.id,
+        legId: type === "departed" ? `leg_${logItem.id}` : undefined,
+        eventTime: logItem.timestamp,
+        placeName: place,
+        text: values.text,
+        ...gpsPayload(logItem.gps)
+      });
       save();
     });
   }
@@ -395,7 +648,14 @@
       </label>
     `, async (values, data) => {
       const photos = await filesToPhotos(data.getAll("photos"));
-      await addLog(type, title, values.text, { photos });
+      const logItem = await addLog(type, title, values.text, { photos });
+      queueOperation(`event.${type}`, {
+        eventId: logItem.id,
+        eventTime: logItem.timestamp,
+        text: values.text,
+        photoCount: photos.length,
+        ...gpsPayload(logItem.gps)
+      });
       save();
     });
   }
@@ -403,7 +663,16 @@
   function endTrip() {
     if (!state.activeTrip) return;
     openForm("Päätä matka", '<label>Loppuhuomautus<textarea name="notes"></textarea></label>', async values => {
-      await addLog("trip_end", "Matka päätetty", values.notes);
+      const tripId = state.activeTrip.id;
+      const logItem = await addLog("trip_end", "Matka päätetty", values.notes);
+      queueOperation("trip.end", {
+        tripId,
+        eventId: logItem.id,
+        eventTime: logItem.timestamp,
+        endNotes: values.notes,
+        engineHours: state.engineHours,
+        ...gpsPayload(logItem.gps)
+      });
       state.activeTrip = null;
       save();
     });
@@ -477,9 +746,11 @@
       ].filter(Boolean).join("\n");
       const now = new Date();
       const gps = await captureGpsForEvent();
+      const fuelId = newId();
+      const boatEventId = newId();
 
-      state.boatEvents.push({
-        id: newId(),
+      const boatEvent = {
+        id: boatEventId,
         type: "fuel",
         title,
         details,
@@ -488,10 +759,28 @@
         timestamp: now.toISOString(),
         gps,
         source: "Manuaalinen kirjaus"
-      });
+      };
+      state.boatEvents.push(boatEvent);
 
       if (values.engineHours) state.engineHours = Number(values.engineHours);
-      if (state.activeTrip) await addLog("fuel", title, details, { place, gps });
+      const logItem = state.activeTrip
+        ? await addLog("fuel", title, details, { place, gps })
+        : null;
+      queueOperation("fuel.add", {
+        fuelId,
+        boatEventId,
+        eventId: logItem?.id || "",
+        tripId: state.activeTrip?.id || "",
+        fuelTime: now.toISOString(),
+        placeName: place,
+        litres,
+        priceTotal: price,
+        pricePerLitre: ppu,
+        engineHours: values.engineHours || "",
+        fillType: values.fillType,
+        notes: values.notes,
+        ...gpsPayload(gps)
+      });
       save();
     });
 
@@ -546,7 +835,7 @@
     `, async values => {
       const now = new Date();
       state.engineHours = Number(values.hours);
-      state.boatEvents.push({
+      const boatEvent = {
         id: newId(),
         type: "note",
         title: "Konetunnit päivitetty",
@@ -555,6 +844,13 @@
         timestamp: now.toISOString(),
         gps: await captureGpsForEvent(),
         source: "Manuaalinen kirjaus"
+      };
+      state.boatEvents.push(boatEvent);
+      queueOperation("engineHours.add", {
+        boatEventId: boatEvent.id,
+        eventTime: boatEvent.timestamp,
+        hours: Number(values.hours),
+        notes: values.notes
       });
       save();
     });
@@ -741,6 +1037,12 @@
       if (["departed", "moored", "anchored", "fuel"].includes(item.type)) {
         item.title = nextPlace ? `${baseTitle} – ${nextPlace}` : baseTitle;
       }
+      queueOperation("event.update", {
+        eventId: item.id,
+        title: item.title,
+        text: item.details,
+        photoCount: nextPhotos.length
+      });
       save();
     });
   }
@@ -757,6 +1059,11 @@
       item.title = values.title.trim();
       item.details = values.text;
       item.editedAt = new Date().toISOString();
+      queueOperation("boatEvent.update", {
+        boatEventId: item.id,
+        title: item.title,
+        text: item.details
+      });
       save();
     });
   }
@@ -768,6 +1075,9 @@
     const index = list.findIndex(entry => String(entry.id) === String(id));
     if (index >= 0) list.splice(index, 1);
     try {
+      queueOperation(collection === "boat" ? "boatEvent.delete" : "event.delete", collection === "boat"
+        ? { boatEventId: item.id }
+        : { eventId: item.id });
       save();
       closeDialog();
     } catch (error) {
@@ -878,20 +1188,27 @@
     elements.gpsBadge.title = gpsState.error?.message || labels[quality];
   }
 
-  function setSyncStatus(status) {
+  function setSyncStatus(status, detail = "") {
     ensureIndicators();
     if (!elements.syncBadge) return;
+    const pendingCount = VenelokiStorage.getQueue().length;
     const labels = {
       local: "Tallennus paikallinen",
-      syncing: "Synkronoidaan",
+      pending: pendingCount ? `Jonossa ${pendingCount}` : "Odottaa synkronointia",
+      syncing: pendingCount ? `Synkronoidaan · ${pendingCount}` : "Synkronoidaan",
       synced: "Synkronoitu",
-      error: "Tallennusvirhe"
+      error: pendingCount ? `Ei synkronoitu · ${pendingCount}` : "Yhteysvirhe"
     };
     elements.syncBadge.className = `connection-badge sync-${status}`;
     elements.syncBadge.innerHTML = `<span class="status-dot" aria-hidden="true"></span><span>${labels[status] || labels.local}</span>`;
-    elements.syncBadge.title = status === "local"
-      ? "Apps Script -synkronointi ei ole käytössä tässä demoversiossa."
-      : labels[status];
+    elements.syncBadge.title = detail || (status === "local"
+      ? "Anna Apps Script API -osoite ja API-avain Asetukset-välilehdellä."
+      : labels[status]);
+    if (elements.connectionState) {
+      elements.connectionState.textContent = VenelokiApi.isConfigured()
+        ? "Google Sheets -synkronointi"
+        : "Paikallinen tila";
+    }
   }
 
   function handleGpsSuccess(position) {
@@ -967,14 +1284,24 @@
   elements.apiUrlInput.value = settings.apiUrl;
   elements.apiKeyInput.value = settings.apiKey;
 
-  elements.settingsForm.addEventListener("submit", event => {
+  elements.settingsForm.addEventListener("submit", async event => {
     event.preventDefault();
     VenelokiStorage.saveSettings({
       apiUrl: elements.apiUrlInput.value.trim(),
       apiKey: elements.apiKeyInput.value.trim()
     });
-    setSyncStatus("local");
-    alert("Asetukset tallennettu tälle laitteelle. API-yhteys ei ole vielä käytössä tässä demoversiossa.");
+
+    if (!VenelokiApi.isConfigured()) {
+      setSyncStatus("local");
+      alert("Asetukset tallennettiin. Anna sekä API-osoite että API-avain synkronointia varten.");
+      return;
+    }
+
+    setSyncStatus("syncing");
+    const ok = await syncNow();
+    alert(ok
+      ? "API-yhteys toimii. Uudet kirjaukset synkronoidaan Google Sheetsiin."
+      : `Asetukset tallennettiin, mutta yhteys epäonnistui: ${lastSyncError?.message || "tuntematon virhe"}`);
   });
 
   if ("serviceWorker" in navigator) {
@@ -985,7 +1312,19 @@
     if (gpsWatchId !== null) navigator.geolocation?.clearWatch(gpsWatchId);
   });
 
-  setSyncStatus("local");
+  window.addEventListener("online", () => scheduleSync(0));
+  window.addEventListener("offline", () => {
+    if (VenelokiApi.isConfigured()) setSyncStatus("error", "Ei verkkoyhteyttä. Kirjaukset säilyvät jonossa.");
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") scheduleSync(0);
+  });
+
+  setSyncStatus(VenelokiApi.isConfigured()
+    ? VenelokiStorage.getQueue().length ? "pending" : "syncing"
+    : "local");
   startGpsWatch();
   render();
+  if (VenelokiApi.isConfigured()) scheduleSync(0);
 })();
