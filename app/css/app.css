@@ -250,6 +250,16 @@ main { padding: 12px; }
 
 .settings-repair-panel { margin-top: 12px; }
 .settings-offline-panel { margin-top: 12px; }
+.settings-map-panel { margin-top: 12px; }
+
+.admin-map-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 48px;
+  text-decoration: none;
+}
 
 .settings-help,
 .settings-result {
@@ -444,15 +454,119 @@ dialog::backdrop { background: rgba(0,0,0,.72); }
 .sync-error .status-dot { background: var(--red); }
 .sync-local .status-dot { background: var(--muted); }
 
+.map-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.map-tool {
+  min-height: 42px;
+  padding: 8px 12px;
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.map-tool.active {
+  border-color: var(--blue);
+  background: rgba(59, 130, 246, 0.16);
+}
+
+.map-stage {
+  position: relative;
+  min-height: 420px;
+  height: calc(100dvh - 245px);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #10283a;
+}
+
+.trip-map {
+  width: 100%;
+  height: 100%;
+  min-height: 420px;
+}
+
+.map-empty-state {
+  position: absolute;
+  z-index: 500;
+  left: 50%;
+  top: 50%;
+  width: min(360px, calc(100% - 32px));
+  padding: 12px 14px;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 10px;
+  background: rgba(11, 15, 20, 0.86);
+  color: var(--muted);
+  text-align: center;
+  pointer-events: none;
+}
+
+.map-layers-panel {
+  position: absolute;
+  z-index: 700;
+  top: 10px;
+  right: 10px;
+  width: min(300px, calc(100% - 20px));
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(18, 24, 32, 0.96);
+  box-shadow: 0 12px 30px rgba(0,0,0,.3);
+}
+
+.map-layers-panel label {
+  display: block;
+  padding: 7px 0;
+  color: var(--text);
+}
+
+.map-layers-panel p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: .78rem;
+}
+
+.map-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 8px 4px 0;
+  color: var(--muted);
+  font-size: .82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.leaflet-container {
+  background: #10283a;
+  color: #111827;
+  font-family: inherit;
+}
+
+.leaflet-control-attribution {
+  max-width: calc(100% - 12px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .hidden { display: none !important; }
 
 @media (max-width: 700px) {
-  .tabs { display: none; }
+  .tabs { top: 89px; }
   main { padding: 8px; }
   .app-header { padding-left: 10px; padding-right: 10px; }
   .trip-summary { align-items: flex-start; }
   .action-grid { grid-template-columns: repeat(2, 1fr); }
-  #view-map, #view-boat, #view-settings { display: none !important; }
+
+  .map-stage,
+  .trip-map {
+    min-height: 350px;
+    height: calc(100dvh - 245px);
+  }
 
   .connection-indicators {
     width: 100%;

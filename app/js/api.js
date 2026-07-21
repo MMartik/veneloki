@@ -73,6 +73,10 @@ const VenelokiApi = (() => {
     isConfigured,
     ping: () => request("ping"),
     getState: () => request("state.get"),
-    syncOperation: operation => request("sync", { operation })
+    syncOperation: operation => request("sync", { operation }),
+    listPlaces: () => request("places.list"),
+    savePlace: place => request("place.save", { place }),
+    deletePlace: placeId => request("place.delete", { placeId }),
+    importPlaces: places => request("places.import", { places })
   };
 })();

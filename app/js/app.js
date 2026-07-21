@@ -1,5 +1,5 @@
 (() => {
-  const APP_VERSION = "0.2.10";
+  const APP_VERSION = "0.3.0";
   const OFFLINE_READY_VERSION_KEY = "veneloki.offlineReadyVersion";
   let state = VenelokiStorage.getState();
   let activeView = "log";
@@ -34,6 +34,8 @@
     settingsForm: document.getElementById("settingsForm"),
     apiUrlInput: document.getElementById("apiUrlInput"),
     apiKeyInput: document.getElementById("apiKeyInput"),
+    mapBaseLayerInput: document.getElementById("mapBaseLayerInput"),
+    mmlApiKeyInput: document.getElementById("mmlApiKeyInput"),
     repairStateButton: document.getElementById("repairStateButton"),
     repairStateResult: document.getElementById("repairStateResult"),
     offlineReadiness: document.getElementById("offlineReadiness"),
@@ -154,6 +156,19 @@
     };
   }
 
+  function routePointPayload(point) {
+    return {
+      pointId: point.pointId || newId(),
+      recordedAt: point.recordedAt || point.timestamp,
+      latitude: point.latitude,
+      longitude: point.longitude,
+      accuracyM: point.accuracyM ?? point.accuracy,
+      speedMs: point.speedMs ?? point.speed,
+      headingDeg: point.headingDeg ?? point.heading,
+      altitudeM: point.altitudeM ?? point.altitude
+    };
+  }
+
   function scheduleSync(delay = 300) {
     if (!VenelokiApi.isConfigured()) return;
     if (automaticSyncPaused) {
@@ -180,10 +195,11 @@
       remoteState.activeTrip ||
       remoteState.log?.length ||
       remoteState.boatEvents?.length ||
+      remoteState.routePoints?.length ||
       remoteState.engineHours !== null && remoteState.engineHours !== undefined
     );
     const localHasData = Boolean(
-      state.activeTrip || state.log.length || state.boatEvents.length || state.engineHours !== null
+      state.activeTrip || state.log.length || state.boatEvents.length || state.routePoints?.length || state.engineHours !== null
     );
 
     if (!force && !remoteHasData && localHasData) {
@@ -193,6 +209,7 @@
 
     const localLog = new Map(state.log.map(item => [String(item.id), item]));
     const localBoatEvents = new Map(state.boatEvents.map(item => [String(item.id), item]));
+    const localRoutePoints = new Map((state.routePoints || []).map(item => [String(item.pointId || ""), item]));
     const mergePhotos = (item, local) => {
       const localItem = local.get(String(item.id));
       const localPhotos = normalisePhotos(localItem?.photos);
@@ -202,6 +219,18 @@
         hasPhoto: Boolean(item.hasPhoto || localPhotos.length)
       };
     };
+
+    const mergedRoutePoints = Array.isArray(remoteState.routePoints)
+      ? remoteState.routePoints.map(item => ({ ...item, queued: true }))
+      : [];
+    const remotePointIds = new Set(mergedRoutePoints.map(item => String(item.pointId || "")));
+    localRoutePoints.forEach((item, id) => {
+      if (id && !remotePointIds.has(id)) mergedRoutePoints.push(item);
+    });
+    mergedRoutePoints.sort((left, right) => (
+      new Date(left.recordedAt || left.timestamp || 0).getTime() -
+      new Date(right.recordedAt || right.timestamp || 0).getTime()
+    ));
 
     state = {
       activeTrip: remoteState.activeTrip || null,
@@ -213,7 +242,10 @@
         : [],
       engineHours: remoteState.engineHours === null || remoteState.engineHours === undefined
         ? null
-        : Number(remoteState.engineHours)
+        : Number(remoteState.engineHours),
+      routePoints: mergedRoutePoints,
+      places: Array.isArray(remoteState.places) ? remoteState.places : (state.places || []),
+      placeVisits: state.placeVisits || {}
     };
     VenelokiStorage.saveState(state);
     render();
@@ -225,6 +257,7 @@
       remoteState?.activeTrip ||
       remoteState?.log?.length ||
       remoteState?.boatEvents?.length ||
+      remoteState?.routePoints?.length ||
       remoteState?.engineHours !== null && remoteState?.engineHours !== undefined
     );
   }
@@ -299,6 +332,18 @@
         return;
       }
 
+      if (item.type === "automatic_place") {
+        queueOperation("event.automaticPlace", {
+          ...common,
+          placeId: item.matchedPlaceId || "",
+          placeName: entryPlace(item) || item.place || item.title || "Paikka",
+          enteredAt: item.automaticEnteredAt || item.timestamp,
+          exitedAt: item.automaticExitedAt || item.timestamp
+        });
+        queuedCount += 1;
+        return;
+      }
+
       if (item.type === "fuel") {
         const fuel = parseLegacyFuel(item);
         if (!fuel) return;
@@ -319,6 +364,17 @@
         queuedCount += 1;
       }
     });
+
+    const routePoints = (sourceState.routePoints || [])
+      .filter(point => String(point.tripId || trip.id) === String(trip.id));
+    for (let index = 0; index < routePoints.length; index += 200) {
+      queueOperation("gps.batch", {
+        batchId: `gpsbatch_${newId()}`,
+        tripId: trip.id,
+        points: routePoints.slice(index, index + 200).map(routePointPayload)
+      });
+      queuedCount += 1;
+    }
 
     return queuedCount;
   }
@@ -618,6 +674,7 @@
     activeView = viewName;
     elements.tabs.forEach(button => button.classList.toggle("active", button.dataset.view === viewName));
     elements.views.forEach(view => view.classList.toggle("active", view.id === `view-${viewName}`));
+    if (viewName === "map") VenelokiMap?.onViewActive?.();
   }
 
   function eventColor(type) {
@@ -786,11 +843,12 @@
     renderLog();
     renderActionButtons();
     renderBoatEvents();
+    VenelokiMap?.onState?.(state);
     switchView(activeView);
   }
 
   function addLog(type, title, details = "", metadata = {}) {
-    const now = new Date();
+    const now = metadata.timestamp ? new Date(metadata.timestamp) : new Date();
     const gps = Object.prototype.hasOwnProperty.call(metadata, "gps")
       ? metadata.gps
       : latestGpsForEvent();
@@ -806,6 +864,9 @@
       timestamp: now.toISOString(),
       gps,
       source: metadata.source || "Manuaalinen kirjaus",
+      matchedPlaceId: metadata.matchedPlaceId || "",
+      automaticEnteredAt: metadata.automaticEnteredAt || "",
+      automaticExitedAt: metadata.automaticExitedAt || "",
       photos,
       hasPhoto: photos.length > 0
     };
@@ -929,6 +990,8 @@
         lastStatusAt: now.toISOString()
       };
       state.log = [];
+      state.routePoints = [];
+      state.placeVisits = {};
       const logItem = addLog(
         "trip_start",
         "Matka aloitettu",
@@ -959,6 +1022,7 @@
       const logItem = addLog(type, title, values.text, { place });
       state.activeTrip.vesselStatus = vesselStatus;
       state.activeTrip.lastStatusAt = logItem.timestamp;
+      VenelokiMap?.flushPending?.();
       queueOperation(`event.${type}`, {
         eventId: logItem.id,
         legId: type === "departed" ? `leg_${logItem.id}` : undefined,
@@ -994,9 +1058,42 @@
     });
   }
 
+  function addAutomaticPlaceEvent({ place, eventTime, enteredAt, exitedAt, gps }) {
+    if (!state.activeTrip || !place) return null;
+    const displayName = String(place.displayName || place.internalName || "Paikka");
+    const logItem = addLog(
+      "automatic_place",
+      displayName,
+      "Automaattinen paikkakirjaus",
+      {
+        timestamp: eventTime,
+        gps,
+        place: displayName,
+        source: "Automaattinen kirjaus",
+        matchedPlaceId: place.placeId,
+        automaticEnteredAt: enteredAt,
+        automaticExitedAt: exitedAt
+      }
+    );
+    queueOperation("event.automaticPlace", {
+      eventId: logItem.id,
+      eventTime: logItem.timestamp,
+      placeId: place.placeId,
+      placeName: displayName,
+      enteredAt,
+      exitedAt,
+      ...gpsPayload(logItem.gps)
+    });
+    VenelokiStorage.saveState(state);
+    render();
+    scheduleSync();
+    return logItem;
+  }
+
   function endTrip() {
     if (!state.activeTrip) return;
     openForm("Päätä matka", '<label>Loppuhuomautus<textarea name="notes"></textarea></label>', values => {
+      VenelokiMap?.finishTrip?.();
       const tripId = state.activeTrip.id;
       const logItem = addLog("trip_end", "Matka päätetty", values.notes);
       queueOperation("trip.end", {
@@ -1549,6 +1646,7 @@
     gpsState.position = normalisePosition(position);
     gpsState.error = null;
     updateGpsIndicator();
+    VenelokiMap?.onGps?.(gpsState.position);
   }
 
   function handleGpsError(error) {
@@ -1602,13 +1700,18 @@
   const settings = VenelokiStorage.getSettings();
   elements.apiUrlInput.value = settings.apiUrl;
   elements.apiKeyInput.value = settings.apiKey;
+  if (elements.mapBaseLayerInput) elements.mapBaseLayerInput.value = settings.mapBase || "osm";
+  if (elements.mmlApiKeyInput) elements.mmlApiKeyInput.value = settings.mmlApiKey || "";
 
   elements.settingsForm.addEventListener("submit", async event => {
     event.preventDefault();
     VenelokiStorage.saveSettings({
       apiUrl: elements.apiUrlInput.value.trim(),
-      apiKey: elements.apiKeyInput.value.trim()
+      apiKey: elements.apiKeyInput.value.trim(),
+      mapBase: elements.mapBaseLayerInput?.value || "osm",
+      mmlApiKey: elements.mmlApiKeyInput?.value.trim() || ""
     });
+    VenelokiMap?.configureOnlineLayers?.();
 
     if (!VenelokiApi.isConfigured()) {
       setSyncStatus("local");
@@ -1679,6 +1782,7 @@
   }
 
   window.addEventListener("beforeunload", () => {
+    VenelokiMap?.flushPending?.();
     if (gpsWatchId !== null) navigator.geolocation?.clearWatch(gpsWatchId);
   });
 
@@ -1714,6 +1818,14 @@
   setSyncStatus(VenelokiApi.isConfigured()
     ? !navigator.onLine || VenelokiStorage.getQueue().length ? "pending" : "syncing"
     : "local");
+  VenelokiMap?.initialise?.({
+    getState: () => state,
+    getGps: () => gpsState.position,
+    queueOperation,
+    persistState: () => VenelokiStorage.saveState(state),
+    addAutomaticPlaceEvent
+  });
+  VenelokiMap?.flushPending?.();
   startGpsWatch();
   render();
 

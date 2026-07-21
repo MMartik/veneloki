@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0b0f14">
   <title>Veneloki</title>
-  <link rel="manifest" href="./manifest.webmanifest?v=0.2.10">
-  <link rel="stylesheet" href="./css/app.css?v=0.2.10">
+  <link rel="manifest" href="./manifest.webmanifest?v=0.3.0">
+  <link rel="stylesheet" href="../shared/leaflet/leaflet.css?v=1.9.4">
+  <link rel="stylesheet" href="./css/app.css?v=0.3.0">
 </head>
 <body>
   <div id="app" class="app-shell">
@@ -55,9 +56,28 @@
       </section>
 
       <section id="view-map" class="view">
-        <div class="placeholder-panel">
-          <h2>Kartta</h2>
-          <p>Tähän tulee käynnissä olevan matkan reitti, nykyinen sijainti ja lokimerkinnät.</p>
+        <div class="map-toolbar" aria-label="Kartan työkalut">
+          <button id="mapFollowButton" type="button" class="map-tool active" aria-pressed="true">Seuraa venettä</button>
+          <button id="mapFitRouteButton" type="button" class="map-tool">Näytä koko reitti</button>
+          <button id="mapLayersButton" type="button" class="map-tool" aria-expanded="false">Karttatasot</button>
+        </div>
+        <div class="map-stage">
+          <div id="tripMap" class="trip-map" role="application" aria-label="Aktiivisen matkan kartta"></div>
+          <div id="mapEmptyState" class="map-empty-state">
+            Reitti alkaa näkyä, kun matka on käynnissä ja GPS-paikannus saadaan.
+          </div>
+          <section id="mapLayersPanel" class="map-layers-panel hidden" aria-label="Karttatasot">
+            <label><input id="mapBaseLayerToggle" type="checkbox" checked> Online-taustakartta</label>
+            <label><input id="mapWaterwaysToggle" type="checkbox" checked> Väyläviraston väylät</label>
+            <label><input id="mapPlacesToggle" type="checkbox" checked> Omat paikat</label>
+            <label><input id="mapEventsToggle" type="checkbox" checked> Lokimerkinnät</label>
+            <p>Kartta on loki- ja yleiskäyttöön, ei navigointiin.</p>
+          </section>
+        </div>
+        <div class="map-status-row">
+          <span id="mapPointCount">0 reittipistettä</span>
+          <span id="mapDistance">0,0 km</span>
+          <span id="mapBackgroundState">Paikallinen yleispohja</span>
         </div>
       </section>
 
@@ -90,8 +110,29 @@
             API-avain
             <input id="apiKeyInput" type="password" autocomplete="off">
           </label>
+          <label>
+            Online-karttapohja
+            <select id="mapBaseLayerInput">
+              <option value="osm">OpenStreetMap</option>
+              <option value="mml">Maanmittauslaitoksen taustakartta</option>
+              <option value="none">Vain paikallinen yleispohja</option>
+            </select>
+          </label>
+          <label>
+            Maanmittauslaitoksen API-avain
+            <input id="mmlApiKeyInput" type="password" autocomplete="off" placeholder="Tarvitaan vain MML-karttapohjaan">
+          </label>
           <button type="submit" class="primary-button">Tallenna asetukset</button>
         </form>
+
+        <section class="form-panel settings-map-panel">
+          <div class="section-title">Karttapaikkojen hallinta</div>
+          <p class="settings-help">
+            Tietokoneen hallintakartalla voit lisätä, piirtää ja muokata saaria, satamia,
+            kanavia, siltoja, losseja ja muita automaattisesti kirjattavia paikkoja.
+          </p>
+          <a class="secondary-button admin-map-link" href="../admin/">Avaa hallintakartta</a>
+        </section>
 
         <section class="form-panel settings-repair-panel">
           <div class="section-title">Tilan tarkistus ja korjaus</div>
@@ -129,8 +170,10 @@
     </form>
   </dialog>
 
-  <script src="./js/storage.js?v=0.2.10"></script>
-  <script src="./js/api.js?v=0.2.10"></script>
-  <script src="./js/app.js?v=0.2.10"></script>
+  <script src="../shared/leaflet/leaflet.js?v=1.9.4"></script>
+  <script src="./js/storage.js?v=0.3.0"></script>
+  <script src="./js/api.js?v=0.3.0"></script>
+  <script src="./js/map.js?v=0.3.0"></script>
+  <script src="./js/app.js?v=0.3.0"></script>
 </body>
 </html>

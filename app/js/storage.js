@@ -4,6 +4,9 @@ const VenelokiStorage = (() => {
     legacyState: "veneloki.demoState",
     settingsUrl: "veneloki.apiUrl",
     settingsKey: "veneloki.apiKey",
+    settingsMapBase: "veneloki.mapBase",
+    settingsMmlKey: "veneloki.mmlApiKey",
+    settingsMapLayers: "veneloki.mapLayers.v1",
     queue: "veneloki.syncQueue.v1",
     deviceId: "veneloki.deviceId",
     preApiBackup: "veneloki.preApiBackup",
@@ -21,7 +24,15 @@ const VenelokiStorage = (() => {
   }
 
   function emptyState() {
-    return { activeTrip: null, log: [], boatEvents: [], engineHours: null };
+    return {
+      activeTrip: null,
+      log: [],
+      boatEvents: [],
+      engineHours: null,
+      routePoints: [],
+      places: [],
+      placeVisits: {}
+    };
   }
 
   function normaliseState(value) {
@@ -32,7 +43,12 @@ const VenelokiStorage = (() => {
       boatEvents: Array.isArray(source.boatEvents) ? source.boatEvents : [],
       engineHours: source.engineHours === null || source.engineHours === undefined
         ? null
-        : Number(source.engineHours)
+        : Number(source.engineHours),
+      routePoints: Array.isArray(source.routePoints) ? source.routePoints : [],
+      places: Array.isArray(source.places) ? source.places : [],
+      placeVisits: source.placeVisits && typeof source.placeVisits === "object"
+        ? source.placeVisits
+        : {}
     };
   }
 
@@ -108,13 +124,24 @@ const VenelokiStorage = (() => {
     getSettings() {
       return {
         apiUrl: localStorage.getItem(KEYS.settingsUrl) || "",
-        apiKey: localStorage.getItem(KEYS.settingsKey) || ""
+        apiKey: localStorage.getItem(KEYS.settingsKey) || "",
+        mapBase: localStorage.getItem(KEYS.settingsMapBase) || "osm",
+        mmlApiKey: localStorage.getItem(KEYS.settingsMmlKey) || ""
       };
     },
 
     saveSettings(settings) {
       localStorage.setItem(KEYS.settingsUrl, settings.apiUrl || "");
       localStorage.setItem(KEYS.settingsKey, settings.apiKey || "");
+      localStorage.setItem(KEYS.settingsMapBase, settings.mapBase || "osm");
+      localStorage.setItem(KEYS.settingsMmlKey, settings.mmlApiKey || "");
+    },
+    getMapLayers() {
+      const defaults = { base: true, waterways: true, places: true, events: true };
+      return { ...defaults, ...parseJson(localStorage.getItem(KEYS.settingsMapLayers), {}) };
+    },
+    saveMapLayers(layers) {
+      localStorage.setItem(KEYS.settingsMapLayers, JSON.stringify(layers || {}));
     },
 
     getState,
