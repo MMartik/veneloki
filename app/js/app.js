@@ -111,6 +111,15 @@
     return true;
   }
 
+  function logSummary(item) {
+    const details = String(item.details || "").trim();
+    if (!details) return "";
+
+    // Tankkauksen kaikki tiedot säilyvät tietonäkymässä, mutta lokilistassa
+    // riittää ensimmäinen tietorivi eli litramäärä.
+    return item.type === "fuel" ? details.split(/\r?\n/, 1)[0] : details;
+  }
+
   function renderLog() {
     if (!state.log.length) {
       elements.logList.innerHTML = '<div class="empty-state">Ei kirjauksia.</div>';
@@ -120,6 +129,7 @@
     elements.logList.innerHTML = [...state.log].reverse().map(item => {
       const photos = normalisePhotos(item.photos);
       const hasPhoto = photos.length > 0 || item.hasPhoto;
+      const summary = logSummary(item);
       return `
         <div class="log-item" data-id="${escapeHtml(item.id)}" role="button" tabindex="0" aria-label="Avaa kirjauksen tiedot: ${escapeHtml(item.title)}">
           <div class="log-row">
@@ -128,7 +138,7 @@
             <span class="log-title">${escapeHtml(item.title)}</span>
             <span class="log-photo-indicator" aria-label="${hasPhoto ? "Sisältää kuvan" : ""}">${hasPhoto ? "📷" : ""}</span>
           </div>
-          ${item.details ? `<div class="log-summary">${escapeHtml(item.details)}</div>` : ""}
+          ${summary ? `<div class="log-summary">${escapeHtml(summary)}</div>` : ""}
         </div>
       `;
     }).join("");

@@ -193,9 +193,9 @@ main { padding: 12px; }
 .log-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .log-summary {
-  margin: 6px 0 2px 65px;
+  margin: 5px 0 2px 72px;
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: 0.8rem;
   line-height: 1.35;
   white-space: pre-line;
   overflow: hidden;
@@ -229,7 +229,7 @@ main { padding: 12px; }
 
 .log-details {
   display: none;
-  margin: 8px 0 2px 65px;
+  margin: 8px 0 2px 72px;
   color: var(--muted);
   white-space: pre-wrap;
   line-height: 1.4;
@@ -450,7 +450,7 @@ dialog::backdrop { background: rgba(0,0,0,.72); }
   .action-button { min-height: 44px; font-size: 0.9rem; }
   .log-row { grid-template-columns: 8px 42px minmax(0, 1fr) auto; gap: 5px; }
   .log-details,
-  .log-summary { margin-left: 55px; }
+  .log-summary { margin-left: 60px; }
 
   .boat-event-item .log-row {
     grid-template-columns: 8px max-content minmax(0, 1fr) auto;
