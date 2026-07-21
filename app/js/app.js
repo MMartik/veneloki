@@ -409,11 +409,27 @@
     });
   }
 
+  function fuelNumber(value) {
+    if (typeof value === "string" && !value.trim()) return null;
+    const number = Number(String(value).replace(",", "."));
+    return Number.isFinite(number) ? number : null;
+  }
+
+  function fuelInputValue(value, decimals) {
+    return Number(value).toFixed(decimals);
+  }
+
   function newFuel() {
+    let priceSource = "";
+
     openForm("Uusi tankkaus", `
       <label>Paikka<input name="place"></label>
-      <label>Litrat<input name="litres" type="number" min="0" step="0.01" required></label>
-      <label>Hinta yhteensä €<input name="price" type="number" min="0" step="0.01" required></label>
+      <label>Litrat<input name="litres" type="number" min="0.01" step="0.01" inputmode="decimal" required></label>
+      <label>Litrahinta €/l<input name="unitPrice" type="number" min="0" step="0.001" inputmode="decimal"></label>
+      <label>Kokonaishinta €
+        <input name="totalPrice" type="number" min="0" step="0.01" inputmode="decimal">
+        <span class="field-help">Syötä litramäärän lisäksi litrahinta tai kokonaishinta. Toinen lasketaan automaattisesti.</span>
+      </label>
       <label>Konetunnit<input name="engineHours" type="number" min="0" step="0.1"></label>
       <label>Tankkaustyyppi
         <select name="fillType">
@@ -423,9 +439,33 @@
       </label>
       <label>Lisätiedot<textarea name="notes"></textarea></label>
     `, async values => {
-      const litres = Number(values.litres);
-      const price = Number(values.price);
-      const ppu = litres > 0 ? price / litres : 0;
+      const litres = fuelNumber(values.litres);
+      const enteredUnitPrice = fuelNumber(values.unitPrice);
+      const enteredTotalPrice = fuelNumber(values.totalPrice);
+
+      if (!(litres > 0)) throw new Error("Anna tankattu litramäärä.");
+      if (enteredUnitPrice === null && enteredTotalPrice === null) {
+        throw new Error("Anna joko litrahinta tai kokonaishinta.");
+      }
+
+      let price;
+      let ppu;
+      if (priceSource === "unit" && enteredUnitPrice !== null) {
+        ppu = enteredUnitPrice;
+        price = litres * ppu;
+      } else if (priceSource === "total" && enteredTotalPrice !== null) {
+        price = enteredTotalPrice;
+        ppu = price / litres;
+      } else if (enteredTotalPrice !== null) {
+        price = enteredTotalPrice;
+        ppu = price / litres;
+      } else {
+        ppu = enteredUnitPrice;
+        price = litres * ppu;
+      }
+
+      if (price < 0 || ppu < 0) throw new Error("Hinta ei voi olla negatiivinen.");
+
       const place = values.place.trim();
       const title = place ? `Tankkaus – ${place}` : "Tankkaus";
       const details = [
@@ -453,6 +493,49 @@
       if (values.engineHours) state.engineHours = Number(values.engineHours);
       if (state.activeTrip) await addLog("fuel", title, details, { place, gps });
       save();
+    });
+
+    const litresInput = elements.dialogFields.querySelector('[name="litres"]');
+    const unitPriceInput = elements.dialogFields.querySelector('[name="unitPrice"]');
+    const totalPriceInput = elements.dialogFields.querySelector('[name="totalPrice"]');
+
+    const updateCalculatedPrice = source => {
+      const litres = fuelNumber(litresInput.value);
+      if (!(litres > 0)) return;
+
+      if (source === "unit") {
+        const unitPrice = fuelNumber(unitPriceInput.value);
+        if (unitPrice !== null) totalPriceInput.value = fuelInputValue(litres * unitPrice, 2);
+      } else if (source === "total") {
+        const totalPrice = fuelNumber(totalPriceInput.value);
+        if (totalPrice !== null) unitPriceInput.value = fuelInputValue(totalPrice / litres, 3);
+      }
+    };
+
+    litresInput.addEventListener("input", () => {
+      if (!priceSource) {
+        if (unitPriceInput.value && !totalPriceInput.value) priceSource = "unit";
+        else if (totalPriceInput.value) priceSource = "total";
+      }
+      if (priceSource) updateCalculatedPrice(priceSource);
+    });
+
+    unitPriceInput.addEventListener("input", () => {
+      if (!unitPriceInput.value) {
+        if (totalPriceInput.value) priceSource = "total";
+        return;
+      }
+      priceSource = "unit";
+      updateCalculatedPrice(priceSource);
+    });
+
+    totalPriceInput.addEventListener("input", () => {
+      if (!totalPriceInput.value) {
+        if (unitPriceInput.value) priceSource = "unit";
+        return;
+      }
+      priceSource = "total";
+      updateCalculatedPrice(priceSource);
     });
   }
 
