@@ -27,12 +27,11 @@
     geometryTypeInput: document.getElementById("geometryTypeInput"),
     radiusInput: document.getElementById("radiusInput"),
     radiusField: document.getElementById("radiusField"),
+    radiusHelp: document.getElementById("radiusHelp"),
     minimumStayInput: document.getElementById("minimumStayInput"),
     descriptionInput: document.getElementById("descriptionInput"),
     autoLogInput: document.getElementById("autoLogInput"),
-    oncePerVisitInput: document.getElementById("oncePerVisitInput"),
     showOnMapInput: document.getElementById("showOnMapInput"),
-    showInReportInput: document.getElementById("showInReportInput"),
     enabledInput: document.getElementById("enabledInput"),
     geometryJsonInput: document.getElementById("geometryJsonInput"),
     geometryState: document.getElementById("geometryState"),
@@ -96,6 +95,10 @@
       drawing = false;
       updateDrawHint();
       updateToolbarState();
+    });
+    map.on("zoomend", () => {
+      renderPlaces();
+      renderEditorGeometry();
     });
   }
 
@@ -182,6 +185,10 @@
       updateDrawHint();
     });
     elements.radiusInput.addEventListener("input", renderEditorGeometry);
+    elements.placeTypeInput.addEventListener("change", () => {
+      renderEditorGeometry();
+      renderPlaces();
+    });
     elements.newCircleButton.addEventListener("click", () => resetEditor("circle", true));
     elements.newLineButton.addEventListener("click", () => resetEditor("line", true));
     elements.newPolygonButton.addEventListener("click", () => resetEditor("polygon", true));
@@ -272,9 +279,7 @@
     elements.minimumStayInput.value = Number(place.minimumStaySeconds || 0);
     elements.descriptionInput.value = place.description || "";
     elements.autoLogInput.checked = place.autoLog !== false;
-    elements.oncePerVisitInput.checked = place.oncePerVisit !== false;
     elements.showOnMapInput.checked = place.showOnMap !== false;
-    elements.showInReportInput.checked = place.showInReport !== false;
     elements.enabledInput.checked = place.enabled !== false;
     geometry = cloneGeometry(place.geometryJson);
     elements.editorTitle.textContent = place.displayName || "Muokkaa paikkaa";
@@ -299,9 +304,7 @@
     elements.radiusInput.value = "150";
     elements.minimumStayInput.value = "0";
     elements.autoLogInput.checked = true;
-    elements.oncePerVisitInput.checked = true;
     elements.showOnMapInput.checked = true;
-    elements.showInReportInput.checked = true;
     elements.enabledInput.checked = true;
     elements.editorTitle.textContent = "Uusi paikka";
     elements.deleteButton.disabled = true;
@@ -317,6 +320,9 @@
     const type = elements.geometryTypeInput.value;
     elements.radiusField.firstChild.textContent = type === "circle" ? "Tunnistussäde metreinä" : "Viivan tunnistusetäisyys metreinä";
     elements.radiusField.classList.toggle("hidden", type === "polygon");
+    elements.radiusHelp.textContent = type === "circle"
+      ? "Etäisyys keskipisteestä ympyrän reunaan."
+      : "Varjostettu tunnistuskäytävä ulottuu tämän verran viivan kummallekin puolelle.";
     updateToolbarState();
   }
 
@@ -405,7 +411,7 @@
 
     const vertices = type === "polygon" ? polygonVertices() : geometry.coordinates;
     if (type === "line" && vertices.length > 1) {
-      L.polyline(vertices.map(toLatLng), { color, weight: 6 }).addTo(editorLayer);
+      createLineDetectionLayer(vertices, color, elements.radiusInput.value, 6).addTo(editorLayer);
     }
     if (type === "polygon" && vertices.length > 2) {
       L.polygon(vertices.map(toLatLng), { color, fillColor: color, fillOpacity: .16, weight: 3 }).addTo(editorLayer);
@@ -455,7 +461,7 @@
         weight: 3
       }).addTo(editorLayer);
     } else if (type === "line") {
-      L.polyline(geometry.coordinates.map(toLatLng), { color, weight: 6 }).addTo(editorLayer);
+      createLineDetectionLayer(geometry.coordinates, color, elements.radiusInput.value, 6).addTo(editorLayer);
     } else {
       L.polygon(polygonVertices().map(toLatLng), { color, fillColor: color, fillOpacity: .16, weight: 3 }).addTo(editorLayer);
     }
@@ -504,9 +510,9 @@
       minimumStaySeconds: Math.max(0, Number(elements.minimumStayInput.value) || 0),
       description: elements.descriptionInput.value.trim(),
       autoLog: elements.autoLogInput.checked,
-      oncePerVisit: elements.oncePerVisitInput.checked,
+      oncePerVisit: true,
       showOnMap: elements.showOnMapInput.checked,
-      showInReport: elements.showInReportInput.checked,
+      showInReport: true,
       enabled: elements.enabledInput.checked,
       source: "manual"
     };
@@ -548,7 +554,8 @@
     if (type === "circle" && geometry.type === "Point") return { ok: true, message: "Keskipiste on asetettu." };
     if (type === "line" && geometry.type === "LineString") {
       const count = geometry.coordinates.length;
-      return { ok: count >= 2, message: count >= 2 ? `Viivassa on ${count} pistettä.` : "Viiva tarvitsee vähintään kaksi pistettä." };
+      const radius = Math.max(1, Number(elements.radiusInput.value) || 100);
+      return { ok: count >= 2, message: count >= 2 ? `Viivassa on ${count} pistettä. Tunnistus ${radius} m viivan molemmin puolin.` : "Viiva tarvitsee vähintään kaksi pistettä." };
     }
     if (type === "polygon" && geometry.type === "Polygon") {
       const count = polygonVertices().length;
@@ -566,7 +573,7 @@
     if (place.geometryType === "circle" && itemGeometry.type === "Point") {
       layer = L.circle(toLatLng(itemGeometry.coordinates), { ...style, radius: Number(place.radiusM || 100) });
     } else if (place.geometryType === "line" && itemGeometry.type === "LineString") {
-      layer = L.polyline(itemGeometry.coordinates.map(toLatLng), { ...style, weight: 5 });
+      layer = createLineDetectionLayer(itemGeometry.coordinates, color, place.radiusM, 5);
     } else if (place.geometryType === "polygon" && itemGeometry.type === "Polygon") {
       layer = L.polygon(itemGeometry.coordinates[0].map(toLatLng), style);
     }
@@ -595,7 +602,12 @@
     }
 
     if (place.geometryType === "line" && itemGeometry.type === "LineString") {
-      return L.latLngBounds(itemGeometry.coordinates.map(toLatLng));
+      const radiusM = Math.max(1, Number(place.radiusM) || 100);
+      const bounds = L.latLngBounds([]);
+      itemGeometry.coordinates.forEach(coordinate => {
+        bounds.extend(L.latLng(toLatLng(coordinate)).toBounds(radiusM * 2));
+      });
+      return bounds;
     }
 
     if (place.geometryType === "polygon" && itemGeometry.type === "Polygon") {
@@ -704,6 +716,35 @@
 
   function toLatLng(coordinate) {
     return [Number(coordinate[1]), Number(coordinate[0])];
+  }
+
+  function createLineDetectionLayer(coordinates, color, radiusM, centerWeight = 5) {
+    const latLngs = coordinates.map(toLatLng);
+    const reference = coordinates[Math.floor(coordinates.length / 2)] || coordinates[0];
+    const diameterPixels = metresToPixels(Math.max(1, Number(radiusM) || 100) * 2, reference);
+    const corridor = L.polyline(latLngs, {
+      color,
+      weight: Math.max(centerWeight + 4, diameterPixels),
+      opacity: .18,
+      interactive: false
+    });
+    const centreLine = L.polyline(latLngs, {
+      color,
+      weight: centerWeight,
+      opacity: .95
+    });
+    return L.featureGroup([corridor, centreLine]);
+  }
+
+  function metresToPixels(metres, coordinate) {
+    if (!map || !coordinate) return 1;
+    const latitude = Number(coordinate[1]);
+    const longitude = Number(coordinate[0]);
+    const cosine = Math.max(.01, Math.cos(latitude * Math.PI / 180));
+    const longitudeDelta = Number(metres) / (111320 * cosine);
+    const start = map.project([latitude, longitude], map.getZoom());
+    const end = map.project([latitude, longitude + longitudeDelta], map.getZoom());
+    return Math.max(1, Math.abs(end.x - start.x));
   }
 
   function normaliseInternalName(value) {

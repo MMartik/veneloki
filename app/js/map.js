@@ -126,7 +126,7 @@ const VenelokiMap = (() => {
   async function loadOfflineMap() {
     if (!offlineDataLayer) return;
     try {
-      const response = await fetch("./data/offline-map.geojson?v=0.3.0", { cache: "force-cache" });
+      const response = await fetch("./data/offline-map.geojson?v=0.3.2", { cache: "force-cache" });
       if (!response.ok) return;
       const data = await response.json();
       offlineDataLayer.clearLayers();
@@ -264,7 +264,7 @@ const VenelokiMap = (() => {
   function renderPlaces() {
     if (!placesLayer) return;
     placesLayer.clearLayers();
-    (state?.places || []).filter(place => place.enabled !== false).forEach(place => {
+    (state?.places || []).filter(place => place.enabled !== false && place.showOnMap !== false).forEach(place => {
       const geometry = parseGeometry(place.geometryJson);
       if (!geometry) return;
       const style = placeStyle(place.placeType);

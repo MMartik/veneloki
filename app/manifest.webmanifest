@@ -2,7 +2,7 @@
   "name": "Veneloki",
   "short_name": "Veneloki",
   "id": "./",
-  "start_url": "./index.html?v=0.3.0",
+  "start_url": "./index.html?v=0.3.2",
   "scope": "./",
   "display": "browser",
   "background_color": "#0b0f14",

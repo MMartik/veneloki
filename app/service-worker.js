@@ -1,12 +1,12 @@
 
-const APP_VERSION = "0.3.0";
+const APP_VERSION = "0.3.2";
 const CACHE_NAME = `veneloki-v${APP_VERSION}`;
 const APP_BASE_URL = new URL("./", self.location.href);
 const APP_FILES = [
   "./index.html",
   "../shared/leaflet/leaflet.css?v=1.9.4",
   "../shared/leaflet/leaflet.js?v=1.9.4",
-  "./data/offline-map.geojson?v=0.3.0",
+  "./data/offline-map.geojson?v=0.3.2",
   `./css/app.css?v=${APP_VERSION}`,
   `./js/storage.js?v=${APP_VERSION}`,
   `./js/api.js?v=${APP_VERSION}`,

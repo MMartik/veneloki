@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b0f14">
   <title>Veneloki · karttapaikkojen hallinta</title>
   <link rel="stylesheet" href="../shared/leaflet/leaflet.css?v=1.9.4">
-  <link rel="stylesheet" href="./css/admin.css?v=0.3.1">
+  <link rel="stylesheet" href="./css/admin.css?v=0.3.2">
 </head>
 <body>
   <header class="admin-header">
@@ -101,6 +101,7 @@
               <option value="anchorage">Ankkuripaikka</option>
               <option value="other">Muu paikka</option>
             </select>
+            <span class="field-help">Luokittelu, karttaväri ja tulevan paikkahaun suodatus. Ei vaikuta GPS-tunnistukseen.</span>
           </label>
           <label>Geometria
             <select id="geometryTypeInput" name="geometryType">
@@ -108,21 +109,27 @@
               <option value="line">Viiva</option>
               <option value="polygon">Alue</option>
             </select>
+            <span class="field-help">Määrittää, millä kartan osalla paikka tunnistetaan.</span>
           </label>
           <label id="radiusField">Tunnistussäde metreinä
             <input id="radiusInput" name="radiusM" type="number" min="1" step="1" value="150">
+            <span id="radiusHelp" class="field-help">Etäisyys keskipisteestä ympyrän reunaan.</span>
           </label>
           <label>Vähimmäisoleskelu sekunteina
             <input id="minimumStayInput" name="minimumStaySeconds" type="number" min="0" step="1" value="0">
+            <span class="field-help">Suodattaa yksittäiset GPS-heilahdukset. Nolla hyväksyy lyhyenkin käynnin.</span>
           </label>
           <label class="full">Kuvaus
             <textarea id="descriptionInput" name="description" rows="2"></textarea>
           </label>
           <label class="check"><input id="autoLogInput" name="autoLog" type="checkbox" checked> Automaattikirjaus</label>
-          <label class="check"><input id="oncePerVisitInput" name="oncePerVisit" type="checkbox" checked> Vain kerran per vierailu</label>
           <label class="check"><input id="showOnMapInput" name="showOnMap" type="checkbox" checked> Näytä kartalla</label>
-          <label class="check"><input id="showInReportInput" name="showInReport" type="checkbox" checked> Näytä raportissa</label>
           <label class="check"><input id="enabledInput" name="enabled" type="checkbox" checked> Käytössä</label>
+          <div class="option-help full">
+            <p><strong>Automaattikirjaus:</strong> kirjaa vierailun vasta paikalta poistuttaessa. Pois päältä oleva paikka säilyy karttapaikkana.</p>
+            <p><strong>Näytä kartalla:</strong> näyttää geometrian veneen karttanäkymässä. Tunnistus voi silti toimia, vaikka geometria piilotetaan.</p>
+            <p><strong>Käytössä:</strong> pääkytkin, joka poistaa sekä automaattitunnistuksen että näkymisen veneen kartalla.</p>
+          </div>
           <input id="geometryJsonInput" name="geometryJson" type="hidden">
           <div class="geometry-state full" id="geometryState">Piirrä geometria kartalle.</div>
           <div class="editor-actions full">
@@ -136,8 +143,8 @@
   </main>
 
   <script src="../shared/leaflet/leaflet.js?v=1.9.4"></script>
-  <script src="../app/js/storage.js?v=0.3.1"></script>
-  <script src="../app/js/api.js?v=0.3.1"></script>
-  <script src="./js/admin.js?v=0.3.1"></script>
+  <script src="../app/js/storage.js?v=0.3.2"></script>
+  <script src="../app/js/api.js?v=0.3.2"></script>
+  <script src="./js/admin.js?v=0.3.2"></script>
 </body>
 </html>

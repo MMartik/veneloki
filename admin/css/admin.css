@@ -80,8 +80,13 @@ input, textarea, select {
   color: var(--text);
 }
 textarea { resize: vertical; }
+.field-help { display: block; margin-top: 5px; color: #718096; font-size: .72rem; line-height: 1.35; }
 label.check { display: flex; align-items: center; gap: 6px; color: var(--text); }
 label.check input, .layer-check input { width: auto; margin: 0; }
+.option-help { padding: 9px 10px; border: 1px solid var(--border); border-radius: 7px; background: rgba(24,33,43,.55); color: var(--muted); font-size: .75rem; line-height: 1.4; }
+.option-help p { margin: 0; }
+.option-help p + p { margin-top: 5px; }
+.option-help strong { color: var(--text); }
 
 .place-list { max-height: 310px; margin-top: 8px; overflow-y: auto; border-top: 1px solid var(--border); }
 .place-row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; min-height: 44px; padding: 7px 5px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; text-align: left; }
