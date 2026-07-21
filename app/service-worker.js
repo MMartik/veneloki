@@ -1,32 +1,74 @@
 
-const APP_VERSION = "0.2.2";
+const APP_VERSION = "0.2.3";
 const CACHE_NAME = `veneloki-v${APP_VERSION}`;
+const APP_BASE_URL = new URL("./", self.location.href);
 const APP_FILES = [
-  "./",
   "./index.html",
   `./css/app.css?v=${APP_VERSION}`,
   `./js/storage.js?v=${APP_VERSION}`,
   `./js/api.js?v=${APP_VERSION}`,
-  `./js/app.js?v=${APP_VERSION}`,
-  `./manifest.webmanifest?v=${APP_VERSION}`
+  `./js/app.js?v=${APP_VERSION}`
 ];
+const OPTIONAL_FILES = [`./manifest.webmanifest?v=${APP_VERSION}`];
+const INDEX_URL = new URL("./index.html", APP_BASE_URL).href;
+const APP_FILE_URLS = APP_FILES.map(path => new URL(path, APP_BASE_URL).href);
+
+async function fetchIntoCache(cache, url) {
+  const request = new Request(url, { cache: "reload" });
+  const response = await fetch(request);
+
+  if (!response.ok) {
+    throw new Error(`Offline-tiedoston lataus epäonnistui (${response.status}): ${url}`);
+  }
+
+  await cache.put(url, response);
+}
+
+async function cacheAppShell() {
+  const cache = await caches.open(CACHE_NAME);
+
+  for (const url of APP_FILE_URLS) {
+    await fetchIntoCache(cache, url);
+  }
+
+  for (const path of OPTIONAL_FILES) {
+    const url = new URL(path, APP_BASE_URL).href;
+    try {
+      await fetchIntoCache(cache, url);
+    } catch (error) {
+      console.warn(error);
+    }
+  }
+
+  return true;
+}
 
 self.addEventListener("install", event => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(
-      APP_FILES.map(url => new Request(url, { cache: "reload" }))
-    ))
-  );
-  self.skipWaiting();
+  event.waitUntil((async () => {
+    await cacheAppShell();
+    await self.skipWaiting();
+  })());
 });
 
 self.addEventListener("activate", event => {
-  event.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key)))
-    )
-  );
-  self.clients.claim();
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key)));
+    await self.clients.claim();
+  })());
+});
+
+self.addEventListener("message", event => {
+  if (event.data?.type !== "CACHE_APP_SHELL") return;
+
+  event.waitUntil((async () => {
+    try {
+      await cacheAppShell();
+      event.ports[0]?.postMessage({ ok: true, version: APP_VERSION });
+    } catch (error) {
+      event.ports[0]?.postMessage({ ok: false, error: error?.message || String(error) });
+    }
+  })());
 });
 
 self.addEventListener("fetch", event => {
@@ -45,11 +87,12 @@ self.addEventListener("fetch", event => {
 
       return response;
     } catch (error) {
-      const cached = await caches.match(event.request);
+      const cached = await caches.match(event.request, { ignoreSearch: false });
       if (cached) return cached;
 
       if (event.request.mode === "navigate") {
-        return caches.match("./index.html");
+        const fallback = await caches.match(INDEX_URL);
+        if (fallback) return fallback;
       }
 
       throw error;

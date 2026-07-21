@@ -249,6 +249,7 @@ main { padding: 12px; }
 }
 
 .settings-repair-panel { margin-top: 12px; }
+.settings-offline-panel { margin-top: 12px; }
 
 .settings-help,
 .settings-result {

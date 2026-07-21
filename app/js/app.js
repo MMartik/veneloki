@@ -1,4 +1,5 @@
 (() => {
+  const APP_VERSION = "0.2.3";
   let state = VenelokiStorage.getState();
   let activeView = "log";
   let dialogBusy = false;
@@ -6,6 +7,7 @@
   let syncRunning = false;
   let syncTimer = null;
   let lastSyncError = null;
+  let serviceWorkerRegistration = null;
 
   const gpsState = {
     position: null,
@@ -27,6 +29,8 @@
     apiKeyInput: document.getElementById("apiKeyInput"),
     repairStateButton: document.getElementById("repairStateButton"),
     repairStateResult: document.getElementById("repairStateResult"),
+    offlineReadiness: document.getElementById("offlineReadiness"),
+    prepareOfflineButton: document.getElementById("prepareOfflineButton"),
     dialog: document.getElementById("formDialog"),
     dialogTitle: document.getElementById("dialogTitle"),
     dialogFields: document.getElementById("dialogFields"),
@@ -40,6 +44,69 @@
 
   function newId() {
     return globalThis.crypto?.randomUUID?.() || `event-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  function setOfflineReadiness(message, status = "") {
+    if (!elements.offlineReadiness) return;
+    elements.offlineReadiness.textContent = message;
+    elements.offlineReadiness.className = `settings-result${status ? ` ${status}` : ""}`;
+  }
+
+  function sendServiceWorkerMessage(worker, message, timeoutMs = 20000) {
+    return new Promise((resolve, reject) => {
+      const channel = new MessageChannel();
+      const timeout = window.setTimeout(() => {
+        channel.port1.close();
+        reject(new Error("Offline-tiedostojen tallennus aikakatkaistiin."));
+      }, timeoutMs);
+
+      channel.port1.onmessage = event => {
+        window.clearTimeout(timeout);
+        channel.port1.close();
+        resolve(event.data || {});
+      };
+
+      worker.postMessage(message, [channel.port2]);
+    });
+  }
+
+  async function prepareOfflineUse() {
+    if (!("serviceWorker" in navigator)) {
+      setOfflineReadiness("Tämä selain ei tue offline-käyttöä.", "error");
+      return false;
+    }
+
+    if (elements.prepareOfflineButton) elements.prepareOfflineButton.disabled = true;
+    setOfflineReadiness("Tallennetaan sovellusta offline-käyttöön…");
+
+    try {
+      const registration = serviceWorkerRegistration || await navigator.serviceWorker.ready;
+      serviceWorkerRegistration = registration;
+      const worker = navigator.serviceWorker.controller || registration.active;
+
+      if (!worker) {
+        throw new Error("Offline-palvelu ei ole vielä aktivoitunut. Sulje sovellus ja avaa se verkkoyhteydellä uudelleen.");
+      }
+
+      const result = await sendServiceWorkerMessage(worker, { type: "CACHE_APP_SHELL" });
+      if (!result.ok) throw new Error(result.error || "Offline-tiedostojen tallennus epäonnistui.");
+
+      if (!navigator.serviceWorker.controller) {
+        setOfflineReadiness(
+          "Offline-tiedostot on tallennettu. Sulje sovellus kerran ja avaa se uudelleen verkkoyhteydellä.",
+          "success"
+        );
+      } else {
+        setOfflineReadiness("Offline-käyttö valmis.", "success");
+      }
+      return true;
+    } catch (error) {
+      console.error(error);
+      setOfflineReadiness(error?.message || "Offline-käytön valmistelu epäonnistui.", "error");
+      return false;
+    } finally {
+      if (elements.prepareOfflineButton) elements.prepareOfflineButton.disabled = false;
+    }
   }
 
   function save() {
@@ -1512,6 +1579,8 @@
       : `Asetukset tallennettiin, mutta yhteys epäonnistui: ${lastSyncError?.message || "tuntematon virhe"}`);
   });
 
+  elements.prepareOfflineButton?.addEventListener("click", () => prepareOfflineUse());
+
   if ("serviceWorker" in navigator) {
     let reloadingForServiceWorker = false;
 
@@ -1521,9 +1590,20 @@
       window.location.reload();
     });
 
-    navigator.serviceWorker.register("./service-worker.js?v=0.2.2", {
+    navigator.serviceWorker.register(`./service-worker.js?v=${APP_VERSION}`, {
+      scope: "./",
       updateViaCache: "none"
-    }).then(registration => registration.update()).catch(console.error);
+    }).then(async registration => {
+      serviceWorkerRegistration = registration;
+      await registration.update().catch(error => console.warn("Service workerin päivitystarkistus epäonnistui.", error));
+      serviceWorkerRegistration = await navigator.serviceWorker.ready;
+      await prepareOfflineUse();
+    }).catch(error => {
+      console.error(error);
+      setOfflineReadiness("Offline-palvelun käyttöönotto epäonnistui. Avaa sovellus verkkoyhteydellä uudelleen.", "error");
+    });
+  } else {
+    setOfflineReadiness("Tämä selain ei tue offline-käyttöä.", "error");
   }
 
   window.addEventListener("beforeunload", () => {

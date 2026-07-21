@@ -7,8 +7,8 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Veneloki</title>
-  <link rel="manifest" href="./manifest.webmanifest?v=0.2.2">
-  <link rel="stylesheet" href="./css/app.css?v=0.2.2">
+  <link rel="manifest" href="./manifest.webmanifest?v=0.2.3">
+  <link rel="stylesheet" href="./css/app.css?v=0.2.3">
 </head>
 <body>
   <div id="app" class="app-shell">
@@ -106,6 +106,16 @@
           </button>
           <div id="repairStateResult" class="settings-result" aria-live="polite"></div>
         </section>
+
+        <section class="form-panel settings-offline-panel">
+          <div class="section-title">Offline-käyttö</div>
+          <p id="offlineReadiness" class="settings-result" aria-live="polite">
+            Tarkistetaan offline-valmiutta…
+          </p>
+          <button id="prepareOfflineButton" type="button" class="secondary-button full-width">
+            Valmistele offline-käyttö
+          </button>
+        </section>
       </section>
     </main>
   </div>
@@ -121,8 +131,8 @@
     </form>
   </dialog>
 
-  <script src="./js/storage.js?v=0.2.2"></script>
-  <script src="./js/api.js?v=0.2.2"></script>
-  <script src="./js/app.js?v=0.2.2"></script>
+  <script src="./js/storage.js?v=0.2.3"></script>
+  <script src="./js/api.js?v=0.2.3"></script>
+  <script src="./js/app.js?v=0.2.3"></script>
 </body>
 </html>
