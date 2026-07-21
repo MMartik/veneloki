@@ -1,5 +1,5 @@
 (() => {
-  const APP_VERSION = "0.2.7";
+  const APP_VERSION = "0.2.10";
   const OFFLINE_READY_VERSION_KEY = "veneloki.offlineReadyVersion";
   let state = VenelokiStorage.getState();
   let activeView = "log";

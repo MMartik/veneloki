@@ -1,5 +1,5 @@
 
-const APP_VERSION = "0.2.7";
+const APP_VERSION = "0.2.10";
 const CACHE_NAME = `veneloki-v${APP_VERSION}`;
 const APP_BASE_URL = new URL("./", self.location.href);
 const APP_FILES = [
