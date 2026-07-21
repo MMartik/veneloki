@@ -1,5 +1,5 @@
 (() => {
-  const APP_VERSION = "0.2.5";
+  const APP_VERSION = "0.2.6";
   const OFFLINE_READY_VERSION_KEY = "veneloki.offlineReadyVersion";
   let state = VenelokiStorage.getState();
   let activeView = "log";
@@ -7,8 +7,10 @@
   let gpsWatchId = null;
   let syncRunning = false;
   let syncTimer = null;
-  let automaticSyncPaused = false;
-  let browserReportedOffline = !navigator.onLine;
+  // iPadOS voi split screenissä lähettää virheellisiä online-tapahtumia.
+  // Offline-tilassa alkanut istunto ei siksi saa vapauttaa verkkolukkoa
+  // automaattisesti ennen sovelluksen seuraavaa avausta.
+  let automaticSyncPaused = !navigator.onLine;
   let lastSyncError = null;
   let serviceWorkerRegistration = null;
   let serviceWorkerInitialising = false;
@@ -343,13 +345,20 @@
 
       if (!queue.length && state.activeTrip && pull) {
         const remoteBeforeSync = await VenelokiApi.getState();
-        if (remoteStateHasData(remoteBeforeSync)) {
-          mergeRemoteState(remoteBeforeSync);
-          setSyncStatus("synced");
-          return true;
-        }
-        queueLegacyActiveTrip();
         queue = VenelokiStorage.getQueue();
+
+        // Käyttäjä voi tehdä kirjauksen samalla, kun palvelimen tilaa luetaan.
+        // Tällöin paikallista reaaliaikaista tilaa ei saa korvata juuri ennen
+        // pyyntöä muodostetulla, jo vanhentuneella palvelintilalla.
+        if (!queue.length) {
+          if (remoteStateHasData(remoteBeforeSync)) {
+            mergeRemoteState(remoteBeforeSync);
+            setSyncStatus("synced");
+            return true;
+          }
+          queueLegacyActiveTrip();
+          queue = VenelokiStorage.getQueue();
+        }
       }
 
       while (queue.length) {
@@ -362,6 +371,15 @@
 
       if (pull) {
         const remoteState = await VenelokiApi.getState();
+
+        // state.get-pyynnön aikana syntynyt uusi kirjaus on jo paikallisessa
+        // näkymässä ja jonossa. Lähetä se seuraavalla kierroksella ennen kuin
+        // palvelimen tila yhdistetään takaisin käyttöliittymään.
+        if (VenelokiStorage.getQueue().length) {
+          setSyncStatus("pending", "Uusi paikallinen kirjaus odottaa taustasynkronointia.");
+          return true;
+        }
+
         const merged = mergeRemoteState(remoteState);
         if (!merged) {
           setSyncStatus("local", "Google Sheets oli tyhjä. Aiemmat paikalliset tiedot säilytettiin laitteella.");
@@ -386,6 +404,19 @@
       return false;
     } finally {
       syncRunning = false;
+
+      // Jos käyttäjä kirjasi jotain käynnissä olevan synkronoinnin aikana,
+      // aiempi ajastettu kutsu on voinut osua syncRunning-tilaan. Varmista,
+      // että uusi jonosisältö saa aina oman taustasynkronointikierroksensa.
+      if (
+        !lastSyncError &&
+        VenelokiStorage.getQueue().length &&
+        VenelokiApi.isConfigured() &&
+        navigator.onLine &&
+        !automaticSyncPaused
+      ) {
+        scheduleSync(0);
+      }
     }
   }
 
@@ -759,11 +790,11 @@
     switchView(activeView);
   }
 
-  async function addLog(type, title, details = "", metadata = {}) {
+  function addLog(type, title, details = "", metadata = {}) {
     const now = new Date();
     const gps = Object.prototype.hasOwnProperty.call(metadata, "gps")
       ? metadata.gps
-      : await captureGpsForEvent();
+      : latestGpsForEvent();
     const photos = normalisePhotos(metadata.photos);
 
     const item = {
@@ -887,7 +918,7 @@
     openForm("Aloita matka", `
       <label>Miehistö<input name="crew" required></label>
       <label>Lisätiedot<textarea name="notes"></textarea></label>
-    `, async values => {
+    `, values => {
       const now = new Date();
       const tripId = newId();
       state.activeTrip = {
@@ -899,7 +930,7 @@
         lastStatusAt: now.toISOString()
       };
       state.log = [];
-      const logItem = await addLog(
+      const logItem = addLog(
         "trip_start",
         "Matka aloitettu",
         `Miehistö: ${values.crew}${values.notes ? `\n${values.notes}` : ""}`
@@ -922,11 +953,11 @@
     openForm(label, `
       <label>Paikka tai lisätieto, vapaaehtoinen<input name="place"></label>
       <label>Lisätieto, vapaaehtoinen<textarea name="text"></textarea></label>
-    `, async values => {
+    `, values => {
       if (!commandAllowed(type)) return;
       const place = values.place.trim();
       const title = place ? `${label} – ${place}` : label;
-      const logItem = await addLog(type, title, values.text, { place });
+      const logItem = addLog(type, title, values.text, { place });
       state.activeTrip.vesselStatus = vesselStatus;
       state.activeTrip.lastStatusAt = logItem.timestamp;
       queueOperation(`event.${type}`, {
@@ -952,7 +983,7 @@
       </label>
     `, async (values, data) => {
       const photos = await filesToPhotos(data.getAll("photos"));
-      const logItem = await addLog(type, title, values.text, { photos });
+      const logItem = addLog(type, title, values.text, { photos });
       queueOperation(`event.${type}`, {
         eventId: logItem.id,
         eventTime: logItem.timestamp,
@@ -966,9 +997,9 @@
 
   function endTrip() {
     if (!state.activeTrip) return;
-    openForm("Päätä matka", '<label>Loppuhuomautus<textarea name="notes"></textarea></label>', async values => {
+    openForm("Päätä matka", '<label>Loppuhuomautus<textarea name="notes"></textarea></label>', values => {
       const tripId = state.activeTrip.id;
-      const logItem = await addLog("trip_end", "Matka päätetty", values.notes);
+      const logItem = addLog("trip_end", "Matka päätetty", values.notes);
       queueOperation("trip.end", {
         tripId,
         eventId: logItem.id,
@@ -1011,7 +1042,7 @@
         </select>
       </label>
       <label>Lisätiedot<textarea name="notes"></textarea></label>
-    `, async values => {
+    `, values => {
       const litres = fuelNumber(values.litres);
       const enteredUnitPrice = fuelNumber(values.unitPrice);
       const enteredTotalPrice = fuelNumber(values.totalPrice);
@@ -1049,7 +1080,7 @@
         values.notes
       ].filter(Boolean).join("\n");
       const now = new Date();
-      const gps = await captureGpsForEvent();
+      const gps = latestGpsForEvent();
       const fuelId = newId();
       const boatEventId = newId();
 
@@ -1068,7 +1099,7 @@
 
       if (values.engineHours) state.engineHours = Number(values.engineHours);
       const logItem = state.activeTrip
-        ? await addLog("fuel", title, details, { place, gps })
+        ? addLog("fuel", title, details, { place, gps })
         : null;
       queueOperation("fuel.add", {
         fuelId,
@@ -1136,7 +1167,7 @@
     openForm("Päivitä konetunnit", `
       <label>Todellinen lukema<input name="hours" type="number" min="0" step="0.1" required></label>
       <label>Lisätieto<textarea name="notes"></textarea></label>
-    `, async values => {
+    `, values => {
       const now = new Date();
       state.engineHours = Number(values.hours);
       const boatEvent = {
@@ -1146,7 +1177,7 @@
         details: `${Number(values.hours).toFixed(1).replace(".", ",")} h${values.notes ? `\n${values.notes}` : ""}`,
         date: now.toLocaleDateString("fi-FI"),
         timestamp: now.toISOString(),
-        gps: await captureGpsForEvent(),
+        gps: latestGpsForEvent(),
         source: "Manuaalinen kirjaus"
       };
       state.boatEvents.push(boatEvent);
@@ -1539,26 +1570,10 @@
     });
   }
 
-  function captureGpsForEvent() {
+  function latestGpsForEvent() {
     const timestamp = gpsState.position ? new Date(gpsState.position.timestamp).getTime() : 0;
-    if (timestamp && Date.now() - timestamp <= 30000) {
-      return Promise.resolve({ ...gpsState.position });
-    }
-    if (!navigator.geolocation) return Promise.resolve(null);
-
-    return new Promise(resolve => {
-      navigator.geolocation.getCurrentPosition(position => {
-        handleGpsSuccess(position);
-        resolve({ ...gpsState.position });
-      }, error => {
-        handleGpsError(error);
-        resolve(gpsState.position ? { ...gpsState.position } : null);
-      }, {
-        enableHighAccuracy: true,
-        maximumAge: 30000,
-        timeout: 5000
-      });
-    });
+    if (!timestamp || Date.now() - timestamp > 60000) return null;
+    return { ...gpsState.position };
   }
 
   function escapeHtml(value) {
@@ -1617,7 +1632,7 @@
       return;
     }
 
-    if (!navigator.onLine) {
+    if (!navigator.onLine || automaticSyncPaused) {
       setOfflineReadiness(
         navigator.serviceWorker.controller
           ? "Offline-käyttö aktiivinen."
@@ -1664,17 +1679,20 @@
   });
 
   window.addEventListener("online", () => {
-    // iPadOS voi ilmoittaa laitteen olevan online, vaikka internet-yhteyttä ei
-    // oikeasti ole. Vapauta verkkovirheen jälkeen asetettu lukko vain, jos
-    // selain on ensin ilmoittanut aidosta offline-tilasta.
-    if (!browserReportedOffline && automaticSyncPaused) return;
-    browserReportedOffline = false;
-    automaticSyncPaused = false;
+    // Älä luota iPadOS:n split screenissä lähettämään online-tapahtumaan.
+    // Kun tämä avauskerta on kerran todettu offline-tilaiseksi, verkkopyynnöt
+    // pysyvät lukittuina. Oikean yhteyden palattua sovelluksen uudelleenavaus
+    // aloittaa uuden istunnon ja synkronoi jonon normaalisti.
+    if (automaticSyncPaused) {
+      if (VenelokiApi.isConfigured()) {
+        setSyncStatus("pending", "Verkko havaittiin. Avaa Veneloki uudelleen verkkoyhteydellä synkronointia varten.");
+      }
+      return;
+    }
     initialiseServiceWorker();
     scheduleSync(0);
   });
   window.addEventListener("offline", () => {
-    browserReportedOffline = true;
     automaticSyncPaused = true;
     if (syncTimer !== null) {
       window.clearTimeout(syncTimer);
