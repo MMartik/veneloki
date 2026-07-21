@@ -1,5 +1,5 @@
 (() => {
-  const APP_VERSION = "0.2.6";
+  const APP_VERSION = "0.2.7";
   const OFFLINE_READY_VERSION_KEY = "veneloki.offlineReadyVersion";
   let state = VenelokiStorage.getState();
   let activeView = "log";
@@ -14,6 +14,7 @@
   let lastSyncError = null;
   let serviceWorkerRegistration = null;
   let serviceWorkerInitialising = false;
+  let serviceWorkerControllerListenerAdded = false;
 
   const gpsState = {
     position: null,
@@ -509,8 +510,6 @@
       return;
     }
 
-    if (serviceWorkerInitialising || serviceWorkerRegistration) return;
-    serviceWorkerInitialising = true;
     if (syncRunning) {
       setRepairResult("Odota nykyisen synkronoinnin valmistumista ja yritä uudelleen.", "error");
       return;
@@ -1642,13 +1641,19 @@
       return;
     }
 
+    if (serviceWorkerInitialising) return;
+    serviceWorkerInitialising = true;
+
     let reloadingForServiceWorker = false;
 
-    navigator.serviceWorker.addEventListener("controllerchange", () => {
-      if (reloadingForServiceWorker) return;
-      reloadingForServiceWorker = true;
-      window.location.reload();
-    });
+    if (!serviceWorkerControllerListenerAdded) {
+      serviceWorkerControllerListenerAdded = true;
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (reloadingForServiceWorker) return;
+        reloadingForServiceWorker = true;
+        window.location.reload();
+      });
+    }
 
     try {
       const registration = await navigator.serviceWorker.register(`./service-worker.js?v=${APP_VERSION}`, {
@@ -1666,13 +1671,12 @@
     } catch (error) {
       console.error(error);
       serviceWorkerRegistration = null;
+      automaticSyncPaused = true;
       setOfflineReadiness("Offline-palvelun käyttöönotto epäonnistui. Avaa sovellus verkkoyhteydellä uudelleen.", "error");
     } finally {
       serviceWorkerInitialising = false;
     }
   }
-
-  initialiseServiceWorker();
 
   window.addEventListener("beforeunload", () => {
     if (gpsWatchId !== null) navigator.geolocation?.clearWatch(gpsWatchId);
@@ -1689,8 +1693,13 @@
       }
       return;
     }
-    initialiseServiceWorker();
-    scheduleSync(0);
+    // Split screenissä iPadOS voi ilmoittaa yhteyden palanneen, vaikka
+    // internetiä ei oikeasti ole. Älä tee tästä tapahtumasta verkkopyyntöä.
+    // Oikean yhteyden palattua sovellus avataan uudelleen, jolloin päivitys
+    // ja synkronointi tarkistetaan hallitusti kerran.
+    if (VenelokiApi.isConfigured()) {
+      setSyncStatus("pending", "Verkko havaittiin. Avaa Veneloki uudelleen verkkoyhteydellä synkronointia varten.");
+    }
   });
   window.addEventListener("offline", () => {
     automaticSyncPaused = true;
@@ -1702,14 +1711,18 @@
     setOfflineReadiness("Offline-käyttö aktiivinen.", "success");
   });
 
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && navigator.onLine) scheduleSync(0);
-  });
-
   setSyncStatus(VenelokiApi.isConfigured()
     ? !navigator.onLine || VenelokiStorage.getQueue().length ? "pending" : "syncing"
     : "local");
   startGpsWatch();
   render();
-  if (VenelokiApi.isConfigured() && navigator.onLine) scheduleSync(0);
+
+  // Tee käynnistyksen mahdolliset verkkotyöt peräkkäin. Näin service workerin
+  // päivitystarkistus ja API-synkronointi eivät voi nostaa kahta rinnakkaista
+  // iPadOS:n yhteysilmoitusta.
+  initialiseServiceWorker().then(() => {
+    if (VenelokiApi.isConfigured() && navigator.onLine && !automaticSyncPaused) {
+      scheduleSync(0);
+    }
+  });
 })();
