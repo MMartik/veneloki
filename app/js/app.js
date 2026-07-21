@@ -1,5 +1,5 @@
 (() => {
-  const APP_VERSION = "0.2.4";
+  const APP_VERSION = "0.2.5";
   const OFFLINE_READY_VERSION_KEY = "veneloki.offlineReadyVersion";
   let state = VenelokiStorage.getState();
   let activeView = "log";
@@ -7,6 +7,8 @@
   let gpsWatchId = null;
   let syncRunning = false;
   let syncTimer = null;
+  let automaticSyncPaused = false;
+  let browserReportedOffline = !navigator.onLine;
   let lastSyncError = null;
   let serviceWorkerRegistration = null;
   let serviceWorkerInitialising = false;
@@ -151,6 +153,10 @@
 
   function scheduleSync(delay = 300) {
     if (!VenelokiApi.isConfigured()) return;
+    if (automaticSyncPaused) {
+      setSyncStatus("pending", "Automaattinen synkronointi odottaa toimivaa verkkoyhteyttä. Kirjaukset säilyvät jonossa.");
+      return;
+    }
     if (!navigator.onLine) {
       setSyncStatus("pending", "Ei verkkoyhteyttä. Kirjaukset säilyvät jonossa.");
       return;
@@ -368,7 +374,15 @@
     } catch (error) {
       lastSyncError = error;
       console.error(error);
-      setSyncStatus("error", error?.message || "Synkronointi epäonnistui.");
+      if (error?.isNetworkError) {
+        automaticSyncPaused = true;
+        setSyncStatus(
+          "pending",
+          "Verkkoyhteyttä ei saatu. Uusia automaattisia yhteysyrityksiä ei tehdä ennen yhteyden palautumista tai sovelluksen uudelleenavausta."
+        );
+      } else {
+        setSyncStatus("error", error?.message || "Synkronointi epäonnistui.");
+      }
       return false;
     } finally {
       syncRunning = false;
@@ -1650,10 +1664,18 @@
   });
 
   window.addEventListener("online", () => {
+    // iPadOS voi ilmoittaa laitteen olevan online, vaikka internet-yhteyttä ei
+    // oikeasti ole. Vapauta verkkovirheen jälkeen asetettu lukko vain, jos
+    // selain on ensin ilmoittanut aidosta offline-tilasta.
+    if (!browserReportedOffline && automaticSyncPaused) return;
+    browserReportedOffline = false;
+    automaticSyncPaused = false;
     initialiseServiceWorker();
     scheduleSync(0);
   });
   window.addEventListener("offline", () => {
+    browserReportedOffline = true;
+    automaticSyncPaused = true;
     if (syncTimer !== null) {
       window.clearTimeout(syncTimer);
       syncTimer = null;

@@ -54,7 +54,14 @@ const VenelokiApi = (() => {
       return result.data;
     } catch (error) {
       if (error?.name === "AbortError") {
-        throw new Error("API-yhteys aikakatkaistiin.");
+        const timeoutError = new Error("API-yhteys aikakatkaistiin.");
+        timeoutError.isNetworkError = true;
+        throw timeoutError;
+      }
+      if (error instanceof TypeError) {
+        const networkError = new Error("Verkkoyhteyttä ei ole käytettävissä.");
+        networkError.isNetworkError = true;
+        throw networkError;
       }
       throw error;
     } finally {
