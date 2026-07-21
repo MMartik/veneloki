@@ -101,7 +101,7 @@
 
     if (trip) {
       elements.vesselState.textContent = trip.vesselStatus === "underway" ? "MATKALLA" : "KIINNITTYNEENÄ";
-      elements.tripMeta.textContent = `Alkoi ${trip.startedAt}`;
+      elements.tripMeta.textContent = trip.lastStatusAt || trip.startedAt;
     } else {
       elements.vesselState.textContent = "EI AKTIIVISTA MATKAA";
       elements.tripMeta.textContent = "Aloita uusi matka.";
@@ -109,7 +109,17 @@
 
     elements.engineHoursValue.textContent = state.engineHours === null ? "–" : `${Number(state.engineHours).toFixed(1).replace(".", ",")} h`;
     renderLog();
-    renderBoatEvents();
+    
+    const underway = trip && trip.vesselStatus==="underway";
+    const ids=["departureButton","arrivalButton","anchorButton"];
+    ids.forEach(id=>{const b=document.getElementById(id); if(!b)return; b.disabled=false;});
+    if(trip){
+      document.getElementById("departureButton").disabled=underway;
+      document.getElementById("arrivalButton").disabled=!underway;
+      document.getElementById("anchorButton").disabled=!underway;
+    }
+
+renderBoatEvents();
   }
 
   function addLog(type, title, details = "") {
@@ -129,6 +139,7 @@
     elements.dialogTitle.textContent = title;
     elements.dialogFields.innerHTML = fields;
     elements.dialog.showModal();
+    requestAnimationFrame(()=>{elements.dialog.scrollTop=0;});
 
     elements.dialogForm.onsubmit = event => {
       event.preventDefault();
@@ -149,7 +160,8 @@
         crew: values.crew,
         notes: values.notes,
         startedAt: now.toLocaleString("fi-FI"),
-        vesselStatus: "moored"
+        vesselStatus: "moored",
+        lastStatusAt: now.toLocaleDateString("fi-FI",{day:"2-digit",month:"2-digit"})+" "+now.toLocaleTimeString("fi-FI",{hour:"2-digit",minute:"2-digit"})
       };
       state.log = [];
       addLog("trip_start", "Matka aloitettu", `Miehistö: ${values.crew}${values.notes ? "\n" + values.notes : ""}`);
@@ -166,6 +178,7 @@
       const title = values.place ? `${label} – ${values.place}` : label;
       addLog(type, title, values.text);
       state.activeTrip.vesselStatus = vesselStatus;
+      state.activeTrip.lastStatusAt = new Date().toLocaleDateString("fi-FI",{day:"2-digit",month:"2-digit"})+" "+new Date().toLocaleTimeString("fi-FI",{hour:"2-digit",minute:"2-digit"});
       save();
     });
   }
@@ -273,31 +286,4 @@
   }
 
   render();
-
-
-// UI Sprint1 overrides
-(function(){
- const tripMeta=document.getElementById('tripMeta');
- const startBtn=document.getElementById('startTripButton');
- const dep=document.getElementById('departureButton');
- const arr=document.getElementById('arrivalButton');
- const anc=document.getElementById('anchorButton');
- const cancelBtns=document.querySelectorAll('button[value="cancel"]');
- cancelBtns.forEach(b=>b.addEventListener('click',()=>document.getElementById('formDialog').close()));
- const origRender=render;
- render=function(){
-   origRender();
-   if(state.activeTrip){
-      const last=[...state.log].reverse().find(e=>['departed','moored','anchored'].includes(e.type));
-      if(last){ tripMeta.textContent=new Date(last.timestamp).toLocaleString('fi-FI',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).replace(',','');}
-      else tripMeta.textContent=state.activeTrip.startedAt;
-      const underway=state.activeTrip.vesselStatus==='underway';
-      dep.disabled=underway;
-      arr.disabled=!underway;
-      anc.disabled=!underway;
-   }
- }
- render();
-})();
-
 })();
