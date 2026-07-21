@@ -273,4 +273,31 @@
   }
 
   render();
+
+
+// UI Sprint1 overrides
+(function(){
+ const tripMeta=document.getElementById('tripMeta');
+ const startBtn=document.getElementById('startTripButton');
+ const dep=document.getElementById('departureButton');
+ const arr=document.getElementById('arrivalButton');
+ const anc=document.getElementById('anchorButton');
+ const cancelBtns=document.querySelectorAll('button[value="cancel"]');
+ cancelBtns.forEach(b=>b.addEventListener('click',()=>document.getElementById('formDialog').close()));
+ const origRender=render;
+ render=function(){
+   origRender();
+   if(state.activeTrip){
+      const last=[...state.log].reverse().find(e=>['departed','moored','anchored'].includes(e.type));
+      if(last){ tripMeta.textContent=new Date(last.timestamp).toLocaleString('fi-FI',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).replace(',','');}
+      else tripMeta.textContent=state.activeTrip.startedAt;
+      const underway=state.activeTrip.vesselStatus==='underway';
+      dep.disabled=underway;
+      arr.disabled=!underway;
+      anc.disabled=!underway;
+   }
+ }
+ render();
+})();
+
 })();

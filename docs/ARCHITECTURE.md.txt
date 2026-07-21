@@ -1,0 +1,90 @@
+# Veneloki – Arkkitehtuuri
+
+## Tavoite
+
+Offline-toimiva veneloki iPadille.
+
+PWA toimii myös ilman verkkoyhteyttä.
+Google Sheets toimii päätietokantana.
+PDF-raportit muodostetaan Google Drivelle.
+
+---
+
+## Kokonaisuus
+
+iPad PWA
+
+↓
+
+REST API (Apps Script)
+
+↓
+
+Services
+
+TripService
+EventService
+LegService
+FuelService
+EngineHourService
+LocationService (tulossa)
+
+↓
+
+Google Sheets
+
+↓
+
+PDF Generator
+
+↓
+
+Google Drive
+
+---
+
+## Käyttöliittymä
+
+Loki
+
+Kartta
+
+Vene
+
+Asetukset
+
+---
+
+## Tietokanta
+
+Matkat
+
+Legit
+
+Lokikirjaukset
+
+GPS-pisteet
+
+Paikat
+
+Tankkaukset
+
+Vene
+
+Kuvat
+
+Raportit
+
+Synkronointipaketit
+
+Asetukset
+
+---
+
+## Periaatteet
+
+- Käyttöliittymä ei kirjoita Sheetiin.
+- Käyttöliittymä käyttää vain REST API:a.
+- Kaikki logiikka sijaitsee Services-kansiossa.
+- PDF muodostetaan aina raakadatasta.
+- Offline toimii ilman käyttäjän toimenpiteitä.

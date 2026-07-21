@@ -1,0 +1,99 @@
+# Veneloki – Roadmap
+
+## Valmis
+
+[x] GitHub
+
+[x] Google Sheets
+
+[x] DatabaseManager
+
+[x] TripService
+
+[x] EventService
+
+[x] LegService
+
+[x] FuelService
+
+[x] EngineHourService
+
+[x] PWA-runko
+
+[x] GitHub Pages
+
+---
+
+## Työn alla
+
+[ ] REST API
+
+[ ] Web API
+
+[ ] PWA → API
+
+---
+
+## Seuraavaksi
+
+[ ] Offline Queue
+
+[ ] GPS
+
+[ ] Kartta
+
+[ ] Reitin piirto
+
+[ ] Paikkatunnistus
+
+[ ] Saaret
+
+[ ] Kanavat
+
+[ ] Lossit
+
+[ ] Satamat
+
+[ ] Kuvien lataus
+
+[ ] PDF Matkaraportti
+
+[ ] PDF Vuosiraportti
+
+[ ] Hallinnan karttanäkymä
+
+[ ] Paikkojen editori
+
+[ ] Raporttien uudelleenajo
+
+---
+
+## Julkaisujärjestys
+
+v0.2
+
+REST API
+
+v0.3
+
+Offline
+
+v0.4
+
+GPS
+
+v0.5
+
+Kartta
+
+v0.6
+
+Automaattikirjaukset
+
+v0.7
+
+PDF
+
+v1.0
+
+Tuotantoversio

@@ -211,6 +211,7 @@ input, textarea {
 textarea { min-height: 90px; resize: vertical; }
 
 dialog {
+  margin: 5vh auto auto auto;
   width: min(520px, calc(100vw - 24px));
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -241,3 +242,5 @@ dialog::backdrop { background: rgba(0,0,0,.72); }
   .log-row { grid-template-columns: 8px 42px minmax(0, 1fr) auto; gap: 5px; }
   .log-details { margin-left: 55px; }
 }
+
+.action-button.danger{border-color:var(--border)!important;}
