@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="fi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0f14">
+  <title>Veneloki · karttapaikkojen hallinta</title>
+  <link rel="stylesheet" href="../shared/leaflet/leaflet.css?v=1.9.4">
+  <link rel="stylesheet" href="./css/admin.css?v=0.3.0">
+</head>
+<body>
+  <header class="admin-header">
+    <div>
+      <h1>Veneloki · karttapaikat</h1>
+      <p>Paikkarekisterin hallinta</p>
+    </div>
+    <div id="connectionStatus" class="connection-status">Ei yhdistetty</div>
+  </header>
+
+  <main class="admin-layout">
+    <section class="map-column">
+      <div class="map-toolbar">
+        <button id="newCircleButton" type="button">Uusi ympyrä</button>
+        <button id="newLineButton" type="button">Uusi viiva</button>
+        <button id="newPolygonButton" type="button">Uusi alue</button>
+        <button id="undoPointButton" type="button" disabled>Peru viimeinen piste</button>
+        <button id="fitPlacesButton" type="button">Näytä kaikki</button>
+        <label class="layer-check"><input id="waterwaysToggle" type="checkbox" checked> Väylät</label>
+      </div>
+      <div class="map-wrap">
+        <div id="adminMap" class="admin-map" role="application" aria-label="Karttapaikkojen muokkauskartta"></div>
+        <div id="drawHint" class="draw-hint hidden"></div>
+      </div>
+      <div class="map-footer">
+        <span id="coordinateStatus">Klikkaa karttaa nähdäksesi koordinaatit.</span>
+        <span>Väyläaineisto ei sovellu navigointiin.</span>
+      </div>
+    </section>
+
+    <aside class="sidebar">
+      <details class="panel connection-panel" open>
+        <summary>Yhteys ja karttapohja</summary>
+        <form id="connectionForm" class="form-grid">
+          <label>Apps Script API -osoite
+            <input id="apiUrlInput" type="url" required placeholder="https://script.google.com/macros/s/.../exec">
+          </label>
+          <label>API-avain
+            <input id="apiKeyInput" type="password" required autocomplete="off">
+          </label>
+          <label>Karttapohja
+            <select id="mapBaseInput">
+              <option value="osm">OpenStreetMap</option>
+              <option value="mml">Maanmittauslaitos</option>
+              <option value="none">Paikallinen yleispohja</option>
+            </select>
+          </label>
+          <label>MML API-avain
+            <input id="mmlKeyInput" type="password" autocomplete="off">
+          </label>
+          <button type="submit" class="primary">Tallenna ja yhdistä</button>
+        </form>
+      </details>
+
+      <section class="panel place-list-panel">
+        <div class="panel-heading">
+          <h2>Paikat</h2>
+          <span id="placeCount">0</span>
+        </div>
+        <input id="placeSearch" type="search" placeholder="Hae nimellä tai tyypillä">
+        <div id="placeList" class="place-list">
+          <div class="empty">Yhdistä APIin paikkojen lataamiseksi.</div>
+        </div>
+        <div class="list-actions">
+          <button id="exportButton" type="button">Vie GeoJSON</button>
+          <label class="file-button">Tuo JSON
+            <input id="importInput" type="file" accept="application/json,.json,.geojson">
+          </label>
+        </div>
+      </section>
+
+      <section class="panel editor-panel">
+        <div class="panel-heading">
+          <h2 id="editorTitle">Uusi paikka</h2>
+          <button id="clearEditorButton" type="button" class="small">Tyhjennä</button>
+        </div>
+        <form id="placeForm" class="form-grid">
+          <input id="placeIdInput" name="placeId" type="hidden">
+          <label>Näyttönimi
+            <input id="displayNameInput" name="displayName" required>
+          </label>
+          <label>Sisäinen nimi
+            <input id="internalNameInput" name="internalName" placeholder="Täytetään näyttönimestä">
+          </label>
+          <label>Paikkatyyppi
+            <select id="placeTypeInput" name="placeType">
+              <option value="island">Saari</option>
+              <option value="harbour">Satama</option>
+              <option value="canal">Kanava</option>
+              <option value="bridge">Silta</option>
+              <option value="ferry">Lossi</option>
+              <option value="anchorage">Ankkuripaikka</option>
+              <option value="other">Muu paikka</option>
+            </select>
+          </label>
+          <label>Geometria
+            <select id="geometryTypeInput" name="geometryType">
+              <option value="circle">Ympyrä</option>
+              <option value="line">Viiva</option>
+              <option value="polygon">Alue</option>
+            </select>
+          </label>
+          <label id="radiusField">Tunnistussäde metreinä
+            <input id="radiusInput" name="radiusM" type="number" min="1" step="1" value="150">
+          </label>
+          <label>Vähimmäisoleskelu sekunteina
+            <input id="minimumStayInput" name="minimumStaySeconds" type="number" min="0" step="1" value="0">
+          </label>
+          <label class="full">Kuvaus
+            <textarea id="descriptionInput" name="description" rows="2"></textarea>
+          </label>
+          <label class="check"><input id="autoLogInput" name="autoLog" type="checkbox" checked> Automaattikirjaus</label>
+          <label class="check"><input id="oncePerVisitInput" name="oncePerVisit" type="checkbox" checked> Vain kerran per vierailu</label>
+          <label class="check"><input id="showOnMapInput" name="showOnMap" type="checkbox" checked> Näytä kartalla</label>
+          <label class="check"><input id="showInReportInput" name="showInReport" type="checkbox" checked> Näytä raportissa</label>
+          <label class="check"><input id="enabledInput" name="enabled" type="checkbox" checked> Käytössä</label>
+          <input id="geometryJsonInput" name="geometryJson" type="hidden">
+          <div class="geometry-state full" id="geometryState">Piirrä geometria kartalle.</div>
+          <div class="editor-actions full">
+            <button id="deleteButton" type="button" class="danger" disabled>Poista</button>
+            <button id="duplicateButton" type="button" disabled>Kopioi</button>
+            <button id="saveButton" type="submit" class="primary">Tallenna paikka</button>
+          </div>
+        </form>
+      </section>
+    </aside>
+  </main>
+
+  <script src="../shared/leaflet/leaflet.js?v=1.9.4"></script>
+  <script src="../app/js/storage.js?v=0.3.0"></script>
+  <script src="../app/js/api.js?v=0.3.0"></script>
+  <script src="./js/admin.js?v=0.3.0"></script>
+</body>
+</html>
