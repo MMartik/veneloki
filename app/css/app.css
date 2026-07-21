@@ -248,6 +248,20 @@ main { padding: 12px; }
   color: var(--muted);
 }
 
+.settings-repair-panel { margin-top: 12px; }
+
+.settings-help,
+.settings-result {
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.settings-help { margin: 0 0 12px; }
+.settings-result { min-height: 1.3em; margin-top: 10px; }
+.settings-result.success { color: #86efac; }
+.settings-result.error { color: #fca5a5; }
+
 input, textarea, select {
   display: block;
   width: 100%;

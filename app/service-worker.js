@@ -1,5 +1,5 @@
 
-const APP_VERSION = "0.2.1";
+const APP_VERSION = "0.2.2";
 const CACHE_NAME = `veneloki-v${APP_VERSION}`;
 const APP_FILES = [
   "./",

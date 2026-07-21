@@ -25,6 +25,8 @@
     settingsForm: document.getElementById("settingsForm"),
     apiUrlInput: document.getElementById("apiUrlInput"),
     apiKeyInput: document.getElementById("apiKeyInput"),
+    repairStateButton: document.getElementById("repairStateButton"),
+    repairStateResult: document.getElementById("repairStateResult"),
     dialog: document.getElementById("formDialog"),
     dialogTitle: document.getElementById("dialogTitle"),
     dialogFields: document.getElementById("dialogFields"),
@@ -80,7 +82,7 @@
     }, delay);
   }
 
-  function mergeRemoteState(remoteState) {
+  function mergeRemoteState(remoteState, { force = false } = {}) {
     if (!remoteState || typeof remoteState !== "object") {
       throw new Error("Palvelin palautti virheellisen tilan.");
     }
@@ -95,7 +97,7 @@
       state.activeTrip || state.log.length || state.boatEvents.length || state.engineHours !== null
     );
 
-    if (!remoteHasData && localHasData) {
+    if (!force && !remoteHasData && localHasData) {
       VenelokiStorage.backupState(state);
       return false;
     }
@@ -154,28 +156,32 @@
     };
   }
 
-  function queueLegacyActiveTrip() {
-    if (!state.activeTrip || VenelokiStorage.getQueue().length) return false;
-    VenelokiStorage.backupState(state);
+  function queueActiveTripSnapshot(sourceState, { includeStart = true, remoteEventIds = new Set() } = {}) {
+    if (!sourceState.activeTrip) return 0;
 
-    const trip = state.activeTrip;
-    const entries = [...state.log].sort((left, right) => (
+    const trip = sourceState.activeTrip;
+    const entries = [...sourceState.log].sort((left, right) => (
       new Date(left.timestamp || 0).getTime() - new Date(right.timestamp || 0).getTime()
     ));
     const startEntry = entries.find(item => item.type === "trip_start");
     const startTime = startEntry?.timestamp || trip.startedAt || new Date().toISOString();
+    let queuedCount = 0;
 
-    queueOperation("trip.start", {
-      tripId: trip.id,
-      eventId: startEntry?.id || newId(),
-      eventTime: startTime,
-      crew: trip.crew || "Ei tietoa",
-      startNotes: trip.notes || "",
-      ...gpsPayload(startEntry?.gps)
-    });
+    if (includeStart) {
+      queueOperation("trip.start", {
+        tripId: trip.id,
+        eventId: startEntry?.id || newId(),
+        eventTime: startTime,
+        crew: trip.crew || "Ei tietoa",
+        startNotes: trip.notes || "",
+        ...gpsPayload(startEntry?.gps)
+      });
+      queuedCount += 1;
+    }
 
     entries.forEach(item => {
       if (item.type === "trip_start" || item.type === "trip_end") return;
+      if (remoteEventIds.has(String(item.id))) return;
 
       const common = {
         eventId: item.id,
@@ -190,6 +196,7 @@
           placeName: entryPlace(item),
           text: item.details || ""
         });
+        queuedCount += 1;
         return;
       }
 
@@ -199,13 +206,14 @@
           text: item.details || "",
           photoCount: normalisePhotos(item.photos).length
         });
+        queuedCount += 1;
         return;
       }
 
       if (item.type === "fuel") {
         const fuel = parseLegacyFuel(item);
         if (!fuel) return;
-        const boatEvent = state.boatEvents.find(candidate => (
+        const boatEvent = sourceState.boatEvents.find(candidate => (
           candidate.type === "fuel" && candidate.timestamp === item.timestamp
         ));
         queueOperation("fuel.add", {
@@ -219,10 +227,17 @@
           engineHours: "",
           notes: ""
         });
+        queuedCount += 1;
       }
     });
 
-    return true;
+    return queuedCount;
+  }
+
+  function queueLegacyActiveTrip() {
+    if (!state.activeTrip || VenelokiStorage.getQueue().length) return false;
+    VenelokiStorage.backupState(state);
+    return queueActiveTripSnapshot(state) > 0;
   }
 
   async function syncNow({ pull = true } = {}) {
@@ -277,6 +292,198 @@
       return false;
     } finally {
       syncRunning = false;
+    }
+  }
+
+  function isTripScopedOperation(operation) {
+    const type = String(operation?.type || "");
+    return type.startsWith("trip.") ||
+      type.startsWith("event.") ||
+      type === "gps.batch" ||
+      type === "fuel.add" && Boolean(operation?.payload?.tripId);
+  }
+
+  function enqueueFreshOperation(operation) {
+    const fresh = VenelokiStorage.createOperation(operation.type, operation.payload || {});
+    VenelokiStorage.enqueue(fresh);
+    return fresh;
+  }
+
+  function queuePendingOperationsForRemote(originalQueue, remoteState, { includeCreates = false } = {}) {
+    const remoteTripId = String(remoteState?.activeTrip?.id || "");
+    if (!remoteTripId) return 0;
+
+    const remoteEventIds = new Set((remoteState.log || []).map(item => String(item.id)));
+    const createTypes = new Set([
+      "event.departed",
+      "event.moored",
+      "event.anchored",
+      "event.note",
+      "event.disturbance",
+      "fuel.add"
+    ]);
+    let queuedCount = 0;
+
+    originalQueue.forEach(operation => {
+      const type = String(operation?.type || "");
+      const payload = operation?.payload || {};
+
+      if (type === "trip.start") return;
+
+      if (type === "trip.end") {
+        if (String(payload.tripId || "") === remoteTripId) {
+          enqueueFreshOperation(operation);
+          queuedCount += 1;
+        }
+        return;
+      }
+
+      if (type === "gps.batch") {
+        if (String(payload.tripId || "") === remoteTripId) {
+          enqueueFreshOperation(operation);
+          queuedCount += 1;
+        }
+        return;
+      }
+
+      if (type === "event.update" || type === "event.delete") {
+        enqueueFreshOperation(operation);
+        queuedCount += 1;
+        return;
+      }
+
+      if (!includeCreates || !createTypes.has(type)) return;
+      if (type === "fuel.add" && String(payload.tripId || "") !== remoteTripId) return;
+      if (payload.eventId && remoteEventIds.has(String(payload.eventId))) return;
+
+      enqueueFreshOperation(operation);
+      queuedCount += 1;
+    });
+
+    return queuedCount;
+  }
+
+  function setRepairResult(message, status = "") {
+    if (!elements.repairStateResult) return;
+    elements.repairStateResult.textContent = message;
+    elements.repairStateResult.className = `settings-result${status ? ` ${status}` : ""}`;
+  }
+
+  function sameIdSet(left, right) {
+    if (left.size !== right.size) return false;
+    return [...left].every(id => right.has(id));
+  }
+
+  async function repairCurrentTripState() {
+    if (!VenelokiApi.isConfigured()) {
+      setRepairResult("Anna ensin API-osoite ja API-avain.", "error");
+      return;
+    }
+    if (!navigator.onLine) {
+      setRepairResult("Tilan tarkistus tarvitsee verkkoyhteyden.", "error");
+      return;
+    }
+    if (syncRunning) {
+      setRepairResult("Odota nykyisen synkronoinnin valmistumista ja yritä uudelleen.", "error");
+      return;
+    }
+
+    elements.repairStateButton.disabled = true;
+    setRepairResult("Tarkistetaan laitteen ja Google Sheetsin tilaa…");
+
+    try {
+      const remoteState = await VenelokiApi.getState();
+      const localSnapshot = JSON.parse(JSON.stringify(state));
+      const originalQueue = VenelokiStorage.getQueue();
+      const tripQueue = originalQueue.filter(isTripScopedOperation);
+      const globalQueue = originalQueue.filter(operation => !isTripScopedOperation(operation));
+      const localTripId = String(localSnapshot.activeTrip?.id || "");
+      const remoteTripId = String(remoteState.activeTrip?.id || "");
+      const localEventIds = new Set((localSnapshot.log || []).map(item => String(item.id)));
+      const remoteEventIds = new Set((remoteState.log || []).map(item => String(item.id)));
+
+      if (localTripId && remoteTripId && localTripId !== remoteTripId) {
+        throw new Error(
+          "Laitteella ja Sheetsissä on eri aktiiviset matkat. Automaattista ylikirjoitusta ei tehty, jotta kumpikaan matka ei katoa."
+        );
+      }
+
+      const activeTripsMatch = localTripId === remoteTripId;
+      const eventListsMatch = sameIdSet(localEventIds, remoteEventIds);
+      if (activeTripsMatch && eventListsMatch && tripQueue.length === 0) {
+        mergeRemoteState(remoteState, { force: true });
+        setRepairResult("Tila on kunnossa. Korjattavaa ei löytynyt.", "success");
+        return;
+      }
+
+      let confirmation;
+      if (localTripId && !remoteTripId) {
+        confirmation =
+          `Sheetsistä puuttuu laitteella aktiivinen matka. Matka ja sen ${localSnapshot.log.length} lokikirjausta kirjoitetaan uudelleen Sheetiin.\n\n` +
+          "Nykyisestä paikallisesta tilasta ja jonosta tallennetaan ensin varmuuskopio. Jatketaanko?";
+      } else if (!localTripId && remoteTripId) {
+        confirmation =
+          `Sheetsissä on aktiivinen matka, mutta laitteella ei. Sheetin matka palautetaan laitteelle ja ${tripQueue.length} vanhaa matkajonon tapahtumaa tarkistetaan.\n\n` +
+          "Nykyisestä paikallisesta tilasta ja jonosta tallennetaan ensin varmuuskopio. Jatketaanko?";
+      } else if (!localTripId && !remoteTripId) {
+        confirmation =
+          `Aktiivista matkaa ei ole laitteella eikä Sheetsissä. ${tripQueue.length} vanhaan matkaan viittaavaa jonotapahtumaa poistetaan aktiivisesta jonosta.\n\n` +
+          "Nykyisestä paikallisesta tilasta ja jonosta tallennetaan ensin varmuuskopio. Jatketaanko?";
+      } else {
+        confirmation =
+          `Aktiivinen matka on sama, mutta lokissa tai synkronointijonossa on eroja. Puuttuvat kirjaukset lähetetään uudelleen ja tila luetaan Sheetsistä.\n\n` +
+          "Nykyisestä paikallisesta tilasta ja jonosta tallennetaan ensin varmuuskopio. Jatketaanko?";
+      }
+
+      if (!window.confirm(confirmation)) {
+        setRepairResult("Tarkistus peruttiin. Mitään ei muutettu.");
+        return;
+      }
+
+      VenelokiStorage.backupForRepair(localSnapshot, originalQueue);
+      VenelokiStorage.replaceQueue(globalQueue);
+
+      let rebuiltCount = 0;
+      if (localTripId) {
+        rebuiltCount += queueActiveTripSnapshot(localSnapshot, {
+          includeStart: !remoteTripId,
+          remoteEventIds
+        });
+        rebuiltCount += queuePendingOperationsForRemote(originalQueue, remoteState);
+      } else if (remoteTripId) {
+        rebuiltCount += queuePendingOperationsForRemote(originalQueue, remoteState, {
+          includeCreates: true
+        });
+      }
+
+      if (VenelokiStorage.getQueue().length) {
+        const ok = await syncNow();
+        if (!ok) {
+          throw lastSyncError || new Error("Korjattujen tietojen synkronointi epäonnistui.");
+        }
+      } else {
+        mergeRemoteState(remoteState, { force: true });
+        setSyncStatus("synced");
+      }
+
+      if (!localTripId && !remoteTripId) {
+        setRepairResult(
+          `Tila korjattu. Aktiivista matkaa ei ole ja ${tripQueue.length} vanhaa jonotapahtumaa poistettiin käytöstä.`,
+          "success"
+        );
+      } else if (localTripId && !remoteTripId) {
+        setRepairResult(
+          `Tila korjattu. Aktiivinen matka kirjoitettiin uudelleen Sheetiin (${rebuiltCount} synkronointitoimintoa).`,
+          "success"
+        );
+      } else {
+        setRepairResult("Tila korjattu ja tarkistettu Google Sheetsistä.", "success");
+      }
+    } catch (error) {
+      console.error(error);
+      setRepairResult(error?.message || "Tilan korjaus epäonnistui.", "error");
+    } finally {
+      elements.repairStateButton.disabled = false;
     }
   }
 
@@ -1279,6 +1486,7 @@
   document.getElementById("endTripButton").addEventListener("click", endTrip);
   document.getElementById("newFuelButton").addEventListener("click", newFuel);
   document.getElementById("updateEngineHoursButton").addEventListener("click", updateEngineHours);
+  elements.repairStateButton.addEventListener("click", repairCurrentTripState);
 
   const settings = VenelokiStorage.getSettings();
   elements.apiUrlInput.value = settings.apiUrl;
@@ -1313,7 +1521,7 @@
       window.location.reload();
     });
 
-    navigator.serviceWorker.register("./service-worker.js?v=0.2.1", {
+    navigator.serviceWorker.register("./service-worker.js?v=0.2.2", {
       updateViaCache: "none"
     }).then(registration => registration.update()).catch(console.error);
   }

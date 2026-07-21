@@ -6,7 +6,8 @@ const VenelokiStorage = (() => {
     settingsKey: "veneloki.apiKey",
     queue: "veneloki.syncQueue.v1",
     deviceId: "veneloki.deviceId",
-    preApiBackup: "veneloki.preApiBackup"
+    preApiBackup: "veneloki.preApiBackup",
+    repairBackup: "veneloki.repairBackup.v1"
   });
 
   function parseJson(value, fallback) {
@@ -133,6 +134,22 @@ const VenelokiStorage = (() => {
     getQueue,
     enqueue,
     removeQueued,
+    replaceQueue(queue) {
+      saveQueue(queue);
+    },
+    backupForRepair(state, queue) {
+      const backup = {
+        savedAt: new Date().toISOString(),
+        state: normaliseState(state),
+        queue: Array.isArray(queue) ? queue : []
+      };
+      try {
+        localStorage.setItem(KEYS.repairBackup, JSON.stringify(backup));
+      } catch (error) {
+        throw new Error("Korjauksen varmuuskopio ei mahtunut laitteen tallennustilaan. Mitään ei muutettu.");
+      }
+      return backup.savedAt;
+    },
     getDeviceId,
 
     createOperation(type, payload) {
