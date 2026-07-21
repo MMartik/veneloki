@@ -285,8 +285,8 @@
     renderPlaces();
     renderPlaceList();
     updateDrawHint();
-    const layer = placeToLayer(place, false);
-    if (layer) map.fitBounds(layer.getBounds ? layer.getBounds() : L.latLngBounds([layer.getLatLng()]), { padding: [40, 40], maxZoom: 15 });
+    const bounds = placeBounds(place);
+    if (bounds?.isValid()) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
   }
 
   function resetEditor(geometryType = "circle", startDrawing = false) {
@@ -575,10 +575,34 @@
   }
 
   function fitPlaces() {
-    const layers = places.map(placeToLayer).filter(Boolean);
-    if (!layers.length) return;
-    const group = L.featureGroup(layers);
-    map.fitBounds(group.getBounds(), { padding: [30, 30], maxZoom: 14 });
+    const bounds = L.latLngBounds([]);
+    places.forEach(place => {
+      const itemBounds = placeBounds(place);
+      if (itemBounds?.isValid()) bounds.extend(itemBounds);
+    });
+    if (!bounds.isValid()) return;
+    map.fitBounds(bounds, { padding: [30, 30], maxZoom: 14 });
+  }
+
+  function placeBounds(place) {
+    const itemGeometry = cloneGeometry(place?.geometryJson);
+    if (!itemGeometry) return null;
+
+    if (place.geometryType === "circle" && itemGeometry.type === "Point") {
+      const center = L.latLng(toLatLng(itemGeometry.coordinates));
+      const diameterM = Math.max(1, Number(place.radiusM) || 100) * 2;
+      return center.toBounds(diameterM);
+    }
+
+    if (place.geometryType === "line" && itemGeometry.type === "LineString") {
+      return L.latLngBounds(itemGeometry.coordinates.map(toLatLng));
+    }
+
+    if (place.geometryType === "polygon" && itemGeometry.type === "Polygon") {
+      return L.latLngBounds((itemGeometry.coordinates[0] || []).map(toLatLng));
+    }
+
+    return null;
   }
 
   function exportGeoJson() {
