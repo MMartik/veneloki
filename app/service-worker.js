@@ -1,5 +1,5 @@
 
-const APP_VERSION = "0.2.9";
+const APP_VERSION = "0.2.7";
 const CACHE_NAME = `veneloki-v${APP_VERSION}`;
 const APP_BASE_URL = new URL("./", self.location.href);
 const APP_FILES = [
@@ -9,6 +9,7 @@ const APP_FILES = [
   `./js/api.js?v=${APP_VERSION}`,
   `./js/app.js?v=${APP_VERSION}`
 ];
+const OPTIONAL_FILES = [`./manifest.webmanifest?v=${APP_VERSION}`];
 const INDEX_URL = new URL("./index.html", APP_BASE_URL).href;
 const APP_FILE_URLS = APP_FILES.map(path => new URL(path, APP_BASE_URL).href);
 
@@ -28,6 +29,15 @@ async function cacheAppShell() {
 
   for (const url of APP_FILE_URLS) {
     await fetchIntoCache(cache, url);
+  }
+
+  for (const path of OPTIONAL_FILES) {
+    const url = new URL(path, APP_BASE_URL).href;
+    try {
+      await fetchIntoCache(cache, url);
+    } catch (error) {
+      console.warn(error);
+    }
   }
 
   return true;
@@ -62,28 +72,35 @@ self.addEventListener("message", event => {
 });
 
 self.addEventListener("fetch", event => {
+  if (event.request.method !== "GET") return;
   const requestUrl = new URL(event.request.url);
+  if (requestUrl.origin !== self.location.origin) return;
 
   event.respondWith((async () => {
-    if (event.request.method === "GET" &&
-        requestUrl.origin === self.location.origin &&
-        event.request.mode === "navigate") {
+    if (event.request.mode === "navigate") {
       const appShell = await caches.match(INDEX_URL);
       if (appShell) return appShell;
     }
 
-    const cached = event.request.method === "GET"
-      ? await caches.match(event.request, { ignoreSearch: true })
-      : null;
+    const cached = await caches.match(event.request, { ignoreSearch: false });
     if (cached) return cached;
 
-    // v0.2.9 on tarkoituksella täysin verkkoliikenteetön rajaustesti.
-    // Myös välimuistista puuttuva pyyntö päätetään paikallisesti, jotta selain
-    // ei voi yrittää Wi-Fiä tai mobiilidataa Venelokin puolesta.
-    return new Response("Verkkopyynnöt on estetty Venelokin testitilassa.", {
-      status: 503,
-      statusText: "Network diagnostic mode",
-      headers: { "Content-Type": "text/plain;charset=utf-8" }
-    });
+    try {
+      const response = await fetch(event.request, { cache: "no-store" });
+
+      if (response.ok) {
+        const cache = await caches.open(CACHE_NAME);
+        await cache.put(event.request, response.clone());
+      }
+
+      return response;
+    } catch (error) {
+      if (event.request.mode === "navigate") {
+        const fallback = await caches.match(INDEX_URL);
+        if (fallback) return fallback;
+      }
+
+      throw error;
+    }
   })());
 });

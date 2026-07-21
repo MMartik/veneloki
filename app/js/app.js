@@ -1,10 +1,5 @@
 (() => {
-  const APP_VERSION = "0.2.9";
-  // Rajausversio iPadOS:n Loisto Mariner + Veneloki Split View -ilmoitukselle.
-  // Selainpaikannuksen lisäksi kaikki Venelokin verkkopyynnöt on pysäytetty.
-  // Kirjaukset tallentuvat normaalisti paikalliseen jonoon.
-  const GPS_DIAGNOSTIC_MODE = true;
-  const NETWORK_DIAGNOSTIC_MODE = true;
+  const APP_VERSION = "0.2.7";
   const OFFLINE_READY_VERSION_KEY = "veneloki.offlineReadyVersion";
   let state = VenelokiStorage.getState();
   let activeView = "log";
@@ -83,11 +78,6 @@
   }
 
   async function prepareOfflineUse() {
-    if (NETWORK_DIAGNOSTIC_MODE) {
-      setOfflineReadiness("Offline-käyttö aktiivinen · verkkotestitila.", "success");
-      return true;
-    }
-
     if (!("serviceWorker" in navigator)) {
       setOfflineReadiness("Tämä selain ei tue offline-käyttöä.", "error");
       return false;
@@ -165,11 +155,6 @@
   }
 
   function scheduleSync(delay = 300) {
-    if (NETWORK_DIAGNOSTIC_MODE) {
-      setSyncStatus("local", "Verkkotestitila: kirjaukset säilyvät paikallisessa jonossa eikä verkkopyyntöjä tehdä.");
-      return;
-    }
-
     if (!VenelokiApi.isConfigured()) return;
     if (automaticSyncPaused) {
       setSyncStatus("pending", "Automaattinen synkronointi odottaa toimivaa verkkoyhteyttä. Kirjaukset säilyvät jonossa.");
@@ -345,12 +330,6 @@
   }
 
   async function syncNow({ pull = true } = {}) {
-    if (NETWORK_DIAGNOSTIC_MODE) {
-      lastSyncError = new Error("Verkkoyhteydet on poistettu käytöstä testitilassa.");
-      setSyncStatus("local", lastSyncError.message);
-      return false;
-    }
-
     if (syncRunning || !VenelokiApi.isConfigured()) return false;
     if (!navigator.onLine) {
       lastSyncError = new Error("Ei verkkoyhteyttä.");
@@ -1530,14 +1509,6 @@
   function updateGpsIndicator() {
     ensureIndicators();
     if (!elements.gpsBadge) return;
-
-    if (GPS_DIAGNOSTIC_MODE) {
-      elements.gpsBadge.className = "connection-badge gps-disabled";
-      elements.gpsBadge.innerHTML = '<span class="status-dot" aria-hidden="true"></span><span>GPS pois · testitila</span>';
-      elements.gpsBadge.title = "Venelokin selainpaikannus on pysäytetty Loisto Mariner -yhteensopivuustestiä varten.";
-      return;
-    }
-
     const quality = gpsQuality(gpsState.position);
     const accuracy = gpsState.position ? Math.round(Number(gpsState.position.accuracy)) : null;
     const labels = {
@@ -1555,14 +1526,8 @@
     ensureIndicators();
     if (!elements.syncBadge) return;
     const pendingCount = VenelokiStorage.getQueue().length;
-    if (NETWORK_DIAGNOSTIC_MODE) {
-      status = "local";
-      detail ||= "Verkkotestitila: Veneloki ei tee API-, päivitys- tai muita verkkopyyntöjä.";
-    }
     const labels = {
-      local: NETWORK_DIAGNOSTIC_MODE
-        ? pendingCount ? `Verkko pois · jonossa ${pendingCount}` : "Verkko pois · testitila"
-        : "Tallennus paikallinen",
+      local: "Tallennus paikallinen",
       pending: pendingCount ? `Jonossa ${pendingCount}` : "Odottaa synkronointia",
       syncing: pendingCount ? `Synkronoidaan · ${pendingCount}` : "Synkronoidaan",
       synced: "Synkronoitu",
@@ -1574,9 +1539,7 @@
       ? "Anna Apps Script API -osoite ja API-avain Asetukset-välilehdellä."
       : labels[status]);
     if (elements.connectionState) {
-      elements.connectionState.textContent = NETWORK_DIAGNOSTIC_MODE
-        ? "Paikallinen verkkotestitila"
-        : VenelokiApi.isConfigured()
+      elements.connectionState.textContent = VenelokiApi.isConfigured()
         ? "Google Sheets -synkronointi"
         : "Paikallinen tila";
     }
@@ -1598,7 +1561,6 @@
   function startGpsWatch() {
     ensureIndicators();
     updateGpsIndicator();
-    if (GPS_DIAGNOSTIC_MODE) return;
     if (!navigator.geolocation) return;
     gpsWatchId = navigator.geolocation.watchPosition(handleGpsSuccess, handleGpsError, {
       enableHighAccuracy: true,
@@ -1666,16 +1628,6 @@
   async function initialiseServiceWorker() {
     if (!("serviceWorker" in navigator)) {
       setOfflineReadiness("Tämä selain ei tue offline-käyttöä.", "error");
-      return;
-    }
-
-    if (NETWORK_DIAGNOSTIC_MODE) {
-      setOfflineReadiness(
-        navigator.serviceWorker.controller
-          ? "Offline-käyttö aktiivinen · verkkotestitila."
-          : "Verkkotestitila aktiivinen, mutta offline-palvelu ei hallitse sivua.",
-        navigator.serviceWorker.controller ? "success" : "error"
-      );
       return;
     }
 
@@ -1769,7 +1721,7 @@
   // päivitystarkistus ja API-synkronointi eivät voi nostaa kahta rinnakkaista
   // iPadOS:n yhteysilmoitusta.
   initialiseServiceWorker().then(() => {
-    if (!NETWORK_DIAGNOSTIC_MODE && VenelokiApi.isConfigured() && navigator.onLine && !automaticSyncPaused) {
+    if (VenelokiApi.isConfigured() && navigator.onLine && !automaticSyncPaused) {
       scheduleSync(0);
     }
   });
