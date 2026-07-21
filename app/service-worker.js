@@ -1,17 +1,22 @@
 
-const CACHE_NAME = "veneloki-v0.2.0";
+const APP_VERSION = "0.2.1";
+const CACHE_NAME = `veneloki-v${APP_VERSION}`;
 const APP_FILES = [
   "./",
   "./index.html",
-  "./css/app.css",
-  "./js/storage.js",
-  "./js/api.js",
-  "./js/app.js",
-  "./manifest.webmanifest"
+  `./css/app.css?v=${APP_VERSION}`,
+  `./js/storage.js?v=${APP_VERSION}`,
+  `./js/api.js?v=${APP_VERSION}`,
+  `./js/app.js?v=${APP_VERSION}`,
+  `./manifest.webmanifest?v=${APP_VERSION}`
 ];
 
 self.addEventListener("install", event => {
-  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_FILES)));
+  event.waitUntil(
+    caches.open(CACHE_NAME).then(cache => cache.addAll(
+      APP_FILES.map(url => new Request(url, { cache: "reload" }))
+    ))
+  );
   self.skipWaiting();
 });
 
@@ -29,15 +34,25 @@ self.addEventListener("fetch", event => {
   const requestUrl = new URL(event.request.url);
   if (requestUrl.origin !== self.location.origin) return;
 
-  event.respondWith(
-    fetch(event.request).then(response => {
+  event.respondWith((async () => {
+    try {
+      const response = await fetch(event.request, { cache: "no-store" });
+
       if (response.ok) {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
+        const cache = await caches.open(CACHE_NAME);
+        await cache.put(event.request, response.clone());
       }
+
       return response;
-    }).catch(() => caches.match(event.request).then(cached => (
-      cached || caches.match("./index.html")
-    )))
-  );
+    } catch (error) {
+      const cached = await caches.match(event.request);
+      if (cached) return cached;
+
+      if (event.request.mode === "navigate") {
+        return caches.match("./index.html");
+      }
+
+      throw error;
+    }
+  })());
 });

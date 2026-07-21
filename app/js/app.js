@@ -1305,7 +1305,17 @@
   });
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./service-worker.js").catch(console.error);
+    let reloadingForServiceWorker = false;
+
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (reloadingForServiceWorker) return;
+      reloadingForServiceWorker = true;
+      window.location.reload();
+    });
+
+    navigator.serviceWorker.register("./service-worker.js?v=0.2.1", {
+      updateViaCache: "none"
+    }).then(registration => registration.update()).catch(console.error);
   }
 
   window.addEventListener("beforeunload", () => {
