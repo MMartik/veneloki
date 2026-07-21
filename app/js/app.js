@@ -1,5 +1,6 @@
 (() => {
-  const APP_VERSION = "0.2.3";
+  const APP_VERSION = "0.2.4";
+  const OFFLINE_READY_VERSION_KEY = "veneloki.offlineReadyVersion";
   let state = VenelokiStorage.getState();
   let activeView = "log";
   let dialogBusy = false;
@@ -8,6 +9,7 @@
   let syncTimer = null;
   let lastSyncError = null;
   let serviceWorkerRegistration = null;
+  let serviceWorkerInitialising = false;
 
   const gpsState = {
     position: null,
@@ -76,6 +78,11 @@
       return false;
     }
 
+    if (!navigator.onLine) {
+      setOfflineReadiness("Offline-käyttö aktiivinen. Valmistelu jatkuu, kun verkkoyhteys palautuu.", "success");
+      return true;
+    }
+
     if (elements.prepareOfflineButton) elements.prepareOfflineButton.disabled = true;
     setOfflineReadiness("Tallennetaan sovellusta offline-käyttöön…");
 
@@ -90,6 +97,8 @@
 
       const result = await sendServiceWorkerMessage(worker, { type: "CACHE_APP_SHELL" });
       if (!result.ok) throw new Error(result.error || "Offline-tiedostojen tallennus epäonnistui.");
+
+      localStorage.setItem(OFFLINE_READY_VERSION_KEY, APP_VERSION);
 
       if (!navigator.serviceWorker.controller) {
         setOfflineReadiness(
@@ -142,6 +151,10 @@
 
   function scheduleSync(delay = 300) {
     if (!VenelokiApi.isConfigured()) return;
+    if (!navigator.onLine) {
+      setSyncStatus("pending", "Ei verkkoyhteyttä. Kirjaukset säilyvät jonossa.");
+      return;
+    }
     if (syncTimer !== null) window.clearTimeout(syncTimer);
     syncTimer = window.setTimeout(() => {
       syncTimer = null;
@@ -311,7 +324,7 @@
     if (syncRunning || !VenelokiApi.isConfigured()) return false;
     if (!navigator.onLine) {
       lastSyncError = new Error("Ei verkkoyhteyttä.");
-      setSyncStatus("error", lastSyncError.message);
+      setSyncStatus("pending", "Ei verkkoyhteyttä. Kirjaukset säilyvät jonossa.");
       return false;
     }
 
@@ -450,6 +463,9 @@
       setRepairResult("Tilan tarkistus tarvitsee verkkoyhteyden.", "error");
       return;
     }
+
+    if (serviceWorkerInitialising || serviceWorkerRegistration) return;
+    serviceWorkerInitialising = true;
     if (syncRunning) {
       setRepairResult("Odota nykyisen synkronoinnin valmistumista ja yritä uudelleen.", "error");
       return;
@@ -1581,7 +1597,22 @@
 
   elements.prepareOfflineButton?.addEventListener("click", () => prepareOfflineUse());
 
-  if ("serviceWorker" in navigator) {
+  async function initialiseServiceWorker() {
+    if (!("serviceWorker" in navigator)) {
+      setOfflineReadiness("Tämä selain ei tue offline-käyttöä.", "error");
+      return;
+    }
+
+    if (!navigator.onLine) {
+      setOfflineReadiness(
+        navigator.serviceWorker.controller
+          ? "Offline-käyttö aktiivinen."
+          : "Offline-palvelua ei voitu tarkistaa ilman verkkoyhteyttä.",
+        navigator.serviceWorker.controller ? "success" : "error"
+      );
+      return;
+    }
+
     let reloadingForServiceWorker = false;
 
     navigator.serviceWorker.addEventListener("controllerchange", () => {
@@ -1590,39 +1621,55 @@
       window.location.reload();
     });
 
-    navigator.serviceWorker.register(`./service-worker.js?v=${APP_VERSION}`, {
-      scope: "./",
-      updateViaCache: "none"
-    }).then(async registration => {
+    try {
+      const registration = await navigator.serviceWorker.register(`./service-worker.js?v=${APP_VERSION}`, {
+        scope: "./",
+        updateViaCache: "none"
+      });
       serviceWorkerRegistration = registration;
-      await registration.update().catch(error => console.warn("Service workerin päivitystarkistus epäonnistui.", error));
       serviceWorkerRegistration = await navigator.serviceWorker.ready;
-      await prepareOfflineUse();
-    }).catch(error => {
+
+      if (localStorage.getItem(OFFLINE_READY_VERSION_KEY) === APP_VERSION && navigator.serviceWorker.controller) {
+        setOfflineReadiness("Offline-käyttö valmis.", "success");
+      } else {
+        await prepareOfflineUse();
+      }
+    } catch (error) {
       console.error(error);
+      serviceWorkerRegistration = null;
       setOfflineReadiness("Offline-palvelun käyttöönotto epäonnistui. Avaa sovellus verkkoyhteydellä uudelleen.", "error");
-    });
-  } else {
-    setOfflineReadiness("Tämä selain ei tue offline-käyttöä.", "error");
+    } finally {
+      serviceWorkerInitialising = false;
+    }
   }
+
+  initialiseServiceWorker();
 
   window.addEventListener("beforeunload", () => {
     if (gpsWatchId !== null) navigator.geolocation?.clearWatch(gpsWatchId);
   });
 
-  window.addEventListener("online", () => scheduleSync(0));
+  window.addEventListener("online", () => {
+    initialiseServiceWorker();
+    scheduleSync(0);
+  });
   window.addEventListener("offline", () => {
-    if (VenelokiApi.isConfigured()) setSyncStatus("error", "Ei verkkoyhteyttä. Kirjaukset säilyvät jonossa.");
+    if (syncTimer !== null) {
+      window.clearTimeout(syncTimer);
+      syncTimer = null;
+    }
+    if (VenelokiApi.isConfigured()) setSyncStatus("pending", "Ei verkkoyhteyttä. Kirjaukset säilyvät jonossa.");
+    setOfflineReadiness("Offline-käyttö aktiivinen.", "success");
   });
 
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") scheduleSync(0);
+    if (document.visibilityState === "visible" && navigator.onLine) scheduleSync(0);
   });
 
   setSyncStatus(VenelokiApi.isConfigured()
-    ? VenelokiStorage.getQueue().length ? "pending" : "syncing"
+    ? !navigator.onLine || VenelokiStorage.getQueue().length ? "pending" : "syncing"
     : "local");
   startGpsWatch();
   render();
-  if (VenelokiApi.isConfigured()) scheduleSync(0);
+  if (VenelokiApi.isConfigured() && navigator.onLine) scheduleSync(0);
 })();

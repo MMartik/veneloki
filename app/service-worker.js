@@ -1,5 +1,5 @@
 
-const APP_VERSION = "0.2.3";
+const APP_VERSION = "0.2.4";
 const CACHE_NAME = `veneloki-v${APP_VERSION}`;
 const APP_BASE_URL = new URL("./", self.location.href);
 const APP_FILES = [
@@ -77,6 +77,14 @@ self.addEventListener("fetch", event => {
   if (requestUrl.origin !== self.location.origin) return;
 
   event.respondWith((async () => {
+    if (event.request.mode === "navigate") {
+      const appShell = await caches.match(INDEX_URL);
+      if (appShell) return appShell;
+    }
+
+    const cached = await caches.match(event.request, { ignoreSearch: false });
+    if (cached) return cached;
+
     try {
       const response = await fetch(event.request, { cache: "no-store" });
 
@@ -87,9 +95,6 @@ self.addEventListener("fetch", event => {
 
       return response;
     } catch (error) {
-      const cached = await caches.match(event.request, { ignoreSearch: false });
-      if (cached) return cached;
-
       if (event.request.mode === "navigate") {
         const fallback = await caches.match(INDEX_URL);
         if (fallback) return fallback;
