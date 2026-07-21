@@ -1,5 +1,6 @@
 const VenelokiApi = (() => {
   const REQUEST_TIMEOUT_MS = 25000;
+  const NETWORK_DIAGNOSTIC_MODE = true;
 
   function configuration() {
     return VenelokiStorage.getSettings();
@@ -11,6 +12,12 @@ const VenelokiApi = (() => {
   }
 
   async function request(action, additional = {}) {
+    if (NETWORK_DIAGNOSTIC_MODE) {
+      const error = new Error("Verkkoyhteydet on poistettu käytöstä testitilassa.");
+      error.isNetworkSuppressed = true;
+      throw error;
+    }
+
     const settings = configuration();
 
     if (!settings.apiUrl || !settings.apiKey) {
